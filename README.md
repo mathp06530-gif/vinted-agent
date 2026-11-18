@@ -1,31 +1,30 @@
 # Vinted Agent
 
-Tu déposes les photos d'un vêtement, l'agent prépare l'annonce Vinted (titre, description qui sonne humaine, marque, modèle, taille, état, prix conseillé, hashtags). Tu relis, tu valides, et un clic ouvre Vinted avec les photos, le titre, la description et le prix déjà remplis. C'est toi qui cliques sur « Ajouter ».
+Tu prends tes vêtements en photo, l'agent prépare l'annonce Vinted : titre, description qui sonne humaine, marque, modèle, taille, état, prix conseillé, hashtags. Tu relis, tu valides, tu publies. Ça marche sur téléphone, tablette et PC, même PC éteint, et tes annonces sont synchronisées partout.
 
-## Lancer
-Double-clique sur `lancer.bat`. La page s'ouvre sur http://localhost:5050.
-Depuis ton téléphone (même Wi-Fi) : l'adresse s'affiche dans la fenêtre noire, pratique pour envoyer les photos direct depuis la galerie.
+- **L'agent** (gratuit, via Groq) : Qwen 3.8 (vision) lit les photos et les étiquettes, GPT-OSS 120B écrit l'annonce.
+- **L'appli** est hébergée sur GitHub Pages.
+- **Tes annonces et photos** sont stockées dans ta base Supabase (gratuite), visibles par toi seul.
 
-## Première fois
-1. Crée une clé gratuite sur console.groq.com (API Keys), puis Réglages → colle-la.
-   L'agent utilise deux modèles open source sur Groq : Qwen 3.8 (vision) lit les photos et les étiquettes, GPT-OSS 120B écrit l'annonce.
-   Tu peux aussi passer sur Claude (payant, plus précis) dans les Réglages.
-2. Choisis ton style (tutoiement, emojis, phrase de fin...).
-3. Pour la publication : la 1re fois, connecte-toi à Vinted dans la fenêtre qui s'ouvre. La connexion est gardée ensuite.
+## Mise en place (une seule fois)
 
-## Les statuts
-- **À vérifier** : l'agent a rédigé, tu relis.
-- **Prête** : validée, pas encore publiée.
-- **Publiée** : en ligne.
-- **Vendue**.
+### 1. Supabase
+1. supabase.com → New project.
+2. **SQL Editor** → colle le contenu de `supabase/schema.sql` → **Run**.
+3. **Project Settings → API** : copie l'**URL** et la clé **anon / publishable** dans `config.js`.
+4. **Authentication → URL Configuration** : mets l'adresse GitHub Pages de l'appli dans *Site URL*.
+5. Une fois ton compte créé dans l'appli : **Authentication → Sign In / Providers** → désactive *Allow new users to sign up*, pour que personne d'autre ne puisse créer de compte.
 
-## Où sont mes données
-Tout est dans `data/` : `annonces.db`, `photos/`, `config.json` (ta clé), `navigateur/` (ta session Vinted). Ne partage pas ce dossier.
+### 2. Groq
+console.groq.com → API Keys → crée une clé → dans l'appli : **Réglages** → colle-la.
 
-## Installer depuis GitHub
-```
-git clone <ton-depot>
-cd vinted-agent
-lancer.bat
-```
-Le dossier `data/` n'est jamais envoyé sur GitHub (voir `.gitignore`).
+### 3. Sur ton téléphone
+Ouvre l'adresse de l'appli → menu du navigateur → **Ajouter à l'écran d'accueil**. Elle s'ouvre ensuite comme une vraie appli.
+
+## Publier sur Vinted
+Dans une annonce « Prête » : **Enregistrer / partager les photos** → **Copier** le titre et la description → **Ouvrir Vinted** → colle, choisis la catégorie, la marque, la taille et l'état → publie → reviens cliquer sur **Marquer publiée**.
+
+## Sécurité
+- `config.js` ne contient que des valeurs publiques. Les règles de la base empêchent quiconque de lire tes annonces.
+- Ta clé Groq est enregistrée dans ton compte Supabase, jamais dans le code.
+- Ne mets jamais la clé `service_role` de Supabase dans ce dépôt.

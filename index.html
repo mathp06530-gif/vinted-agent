@@ -2,27 +2,56 @@
 <html lang="fr">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Vinted Agent</title>
-<link rel="stylesheet" href="/static/style.css">
+<meta name="theme-color" content="#09777f">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Vinted Agent">
+<link rel="stylesheet" href="style.css">
 </head>
 <body>
 <header class="top">
   <div class="brand">
     <span class="logo">V</span>
-    <div><h1>Vinted Agent</h1><p class="sub">Tes annonces, préparées pour toi</p></div>
+    <div><h1>Vinted Agent</h1><p class="sub" id="who">Tes annonces, préparées pour toi</p></div>
   </div>
-  <button class="ghost" id="btn-settings">Réglages</button>
+  <button class="ghost" id="btn-settings" hidden>Réglages</button>
 </header>
 
-<main>
+<!-- Écran : Supabase pas encore branché -->
+<main id="screen-setup" hidden>
+  <section class="card narrow">
+    <h2>Presque prêt</h2>
+    <p>L'appli n'est pas encore reliée à ta base Supabase. Remplis <code>config.js</code> avec l'adresse et la clé publique de ton projet (voir le README).</p>
+  </section>
+</main>
+
+<!-- Écran : connexion -->
+<main id="screen-login" hidden>
+  <section class="card narrow">
+    <h2 id="login-title">Connexion</h2>
+    <div class="field"><label>Email</label><input id="l-email" type="email" autocomplete="email"></div>
+    <div class="field"><label>Mot de passe</label><input id="l-pass" type="password" autocomplete="current-password"></div>
+    <div class="row end">
+      <button class="ghost" id="btn-toggle-signup">Créer mon compte</button>
+      <button class="primary" id="btn-login">Se connecter</button>
+    </div>
+    <p class="hint" id="login-msg"></p>
+  </section>
+</main>
+
+<!-- Écran : appli -->
+<main id="screen-app" hidden>
   <section class="stats" id="stats"></section>
 
   <section class="new card">
     <h2>Nouvelle annonce</h2>
     <label class="drop" id="drop">
       <input type="file" id="new-photos" accept="image/*" multiple hidden>
-      <div id="drop-text"><strong>Dépose tes photos ici</strong><span>ou clique pour les choisir (photo de l'étiquette = annonce plus précise)</span></div>
+      <div><strong>Ajoute tes photos</strong><span>Touche ici pour choisir dans ta galerie ou prendre une photo. Une photo de l'étiquette = annonce plus précise.</span></div>
       <div class="thumbs" id="new-thumbs"></div>
     </label>
     <textarea id="new-hints" rows="2" placeholder="Infos en plus (facultatif) : taille, porté 2 fois, petite tache manche gauche, acheté 90€..."></textarea>
@@ -43,7 +72,7 @@
 
 <!-- Éditeur -->
 <dialog id="editor">
-  <form method="dialog" class="ed" id="ed-form">
+  <form method="dialog" class="ed">
     <div class="ed-head">
       <span class="badge" id="ed-status"></span>
       <button class="ghost" value="close" formnovalidate>Fermer</button>
@@ -73,7 +102,7 @@
         </select></div>
       <div class="field"><label>Couleur</label><input id="f-color"></div>
       <div class="field"><label>Matière</label><input id="f-material"></div>
-      <div class="field"><label>Prix (€)</label><input id="f-price" type="number" min="1" step="1">
+      <div class="field"><label>Prix (€)</label><input id="f-price" type="number" min="1" step="1" inputmode="numeric">
         <small id="price-range"></small></div>
     </div>
     <div class="field"><label>Infos pour l'agent</label>
@@ -82,15 +111,24 @@
     <div class="regen">
       <input id="regen-hint" placeholder="Consigne pour réécrire (ex : plus court, parle de la coupe oversize)">
       <button type="button" id="btn-regen">Réécrire</button>
-      <button type="button" class="ghost small" id="btn-offline" title="Sans IA, à partir des champs remplis">Sans IA</button>
+    </div>
+
+    <div class="publish-help" id="publish-help" hidden>
+      <b>Publier sur Vinted</b>
+      <ol>
+        <li><button type="button" id="btn-share">Enregistrer / partager les photos</button></li>
+        <li>Copie le titre et la description (boutons « Copier » plus haut)</li>
+        <li><a href="https://www.vinted.fr/items/new" target="_blank" rel="noopener" class="btn">Ouvrir Vinted</a> → colle, choisis catégorie, marque, taille, état, prix</li>
+        <li>Reviens ici et clique sur « Marquer publiée »</li>
+      </ol>
     </div>
 
     <div class="ed-actions">
       <button type="button" class="danger ghost" id="btn-delete">Supprimer</button>
       <div class="spacer"></div>
       <button type="button" id="btn-save">Enregistrer</button>
-      <button type="button" class="primary" id="btn-next"></button>
       <button type="button" id="btn-alt" class="ghost"></button>
+      <button type="button" class="primary" id="btn-next"></button>
     </div>
     <p class="hint" id="ed-hint"></p>
   </form>
@@ -98,26 +136,14 @@
 
 <!-- Réglages -->
 <dialog id="settings">
-  <form method="dialog" class="ed" id="set-form">
+  <form method="dialog" class="ed">
     <div class="ed-head"><h2>Réglages</h2><button class="ghost" value="close" formnovalidate>Fermer</button></div>
-    <div class="field"><label>Moteur de l'agent</label>
-      <select id="s-provider"><option value="groq">Groq (gratuit, modèles open source)</option><option value="anthropic">Claude (payant, le plus précis)</option></select></div>
-    <div id="prov-groq">
-      <div class="field"><label>Clé Groq <span id="gkey-state"></span></label>
-        <input id="s-groq_api_key" type="password" placeholder="gsk_... (laisse vide pour garder l'actuelle)" autocomplete="off">
-        <small>Gratuite sur console.groq.com → API Keys. Elle reste sur ton PC (data/config.json).</small></div>
-      <div class="cols">
-        <div class="field"><label>Modèle qui regarde les photos</label><select id="s-groq_vision_model"></select></div>
-        <div class="field"><label>Modèle qui écrit l'annonce</label><select id="s-groq_text_model"></select></div>
-      </div>
-    </div>
-    <div id="prov-anthropic">
-      <div class="field"><label>Clé API Anthropic <span id="key-state"></span></label>
-        <input id="s-api_key" type="password" placeholder="sk-ant-... (laisse vide pour garder l'actuelle)" autocomplete="off">
-        <small>À créer sur console.anthropic.com. Elle reste sur ton PC (data/config.json).</small></div>
-      <div class="field"><label>Modèle Claude</label><select id="s-model"></select></div>
-    </div>
+    <div class="field"><label>Clé Groq <span id="gkey-state"></span></label>
+      <input id="s-groq_api_key" type="password" placeholder="gsk_... (laisse vide pour garder l'actuelle)" autocomplete="off">
+      <small>Gratuite sur console.groq.com → API Keys. Enregistrée dans ton compte, donc dispo sur tous tes appareils.</small></div>
     <div class="cols">
+      <div class="field"><label>Modèle qui regarde les photos</label><select id="s-groq_vision_model"></select></div>
+      <div class="field"><label>Modèle qui écrit l'annonce</label><select id="s-groq_text_model"></select></div>
       <div class="field"><label>Style d'écriture</label>
         <select id="s-style"><option value="naturel">Naturel</option><option value="court">Très court</option><option value="detaille">Détaillé</option></select></div>
       <div class="field"><label>Prix conseillé</label>
@@ -127,16 +153,20 @@
       <div class="field"><label>S'adresser à l'acheteur</label>
         <select id="s-tutoiement"><option value="true">Tutoiement</option><option value="false">Vouvoiement</option></select></div>
     </div>
-    <div class="field"><label><input type="checkbox" id="s-hashtags"> Ajouter des hashtags</label></div>
+    <div class="field"><label><span><input type="checkbox" id="s-hashtags"> Ajouter des hashtags</span></label></div>
     <div class="field"><label>Ta phrase de fin habituelle</label>
       <input id="s-signature" placeholder="ex : envoi rapide, je fais des lots, n'hésite pas à faire une offre"></div>
-    <div class="ed-actions"><div class="spacer"></div><button type="button" class="primary" id="btn-set-save">Enregistrer</button></div>
+    <div class="ed-actions">
+      <button type="button" class="ghost" id="btn-logout">Se déconnecter</button>
+      <div class="spacer"></div>
+      <button type="button" class="primary" id="btn-set-save">Enregistrer</button>
+    </div>
   </form>
 </dialog>
 
 <div class="toast" id="toast"></div>
 <div class="busy" id="busy" hidden><div class="spin"></div><p id="busy-text">L'agent regarde tes photos…</p></div>
 
-<script src="/static/app.js"></script>
+<script type="module" src="js/app.js"></script>
 </body>
 </html>
