@@ -1,6 +1,6 @@
 // L'agent : Qwen (vision) regarde les photos, GPT-OSS 120B écrit l'annonce. Tout passe par Groq.
-import { SYSTEM, VISION_PROMPT } from "./prompts.js?v=7";
-import { guideFor } from "./legit.js?v=7";
+import { SYSTEM, VISION_PROMPT } from "./prompts.js?v=8";
+import { guideFor } from "./legit.js?v=8";
 
 const GROQ_URL = "https://api.groq.com/openai/v1/chat/completions";
 export const VISION_MODELS = { "qwen/qwen3.8-27b": "Qwen 3.8 27B (vision)" };
@@ -149,8 +149,14 @@ export async function generate({ key, cfg, listing, photosB64, extraHints = "", 
 
   // « Inconnu », « Non visible »... = champ vide (le doute est dans les notes)
   for (const k of ["marque", "modele", "categorie", "taille", "couleur", "matiere"]) {
-    if (/^\s*(inconnue?s?|non (visible|précisée?|identifiée?)|n\/?a|aucune?|-|\?)\s*$/i.test(a[k] || "")) a[k] = "";
+    if (/^\s*(inconnue?s?|non (visible|précisée?|identifiée?|indiquée?)|n\/?a|aucune?|-|\?)\s*$/i.test(a[k] || "")) a[k] = "";
   }
+  // Filet de sécurité : jamais de « taille non indiquée » dans le texte public
+  const noUnknown = (t) => String(t || "")
+    .replace(/[,\s]*(taille|pointure|matière)\s+(non\s+(indiquée?|visible|précisée?)|inconnue?)/gi, "")
+    .replace(/\s+([,.])/g, "$1");
+  a.titre = noUnknown(a.titre);
+  a.description = noUnknown(a.description);
   const tags = (a.hashtags || []).filter((t) => String(t).trim())
     .map((t) => "#" + String(t).toLowerCase().replace(/^#/, "").replace(/[^\p{L}\p{N}_]/gu, "")).join(" ");
   return {
