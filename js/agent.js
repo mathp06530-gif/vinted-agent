@@ -1,5 +1,6 @@
 // L'agent : Qwen (vision) regarde les photos, GPT-OSS 120B écrit l'annonce. Tout passe par Groq.
-import { SYSTEM, VISION_PROMPT } from "./prompts.js?v=6";
+import { SYSTEM, VISION_PROMPT } from "./prompts.js?v=7";
+import { guideFor } from "./legit.js?v=7";
 
 const GROQ_URL = "https://api.groq.com/openai/v1/chat/completions";
 export const VISION_MODELS = { "qwen/qwen3.8-27b": "Qwen 3.8 27B (vision)" };
@@ -12,7 +13,8 @@ export const ETATS = ["Neuf avec étiquette", "Neuf sans étiquette", "Très bon
 // On envoie donc au plus 3 images (les photos en trop sont regroupées en planches avant).
 export const MAX_IMAGES = 3;
 const OBS_KEYS = '{"type_article":"","marque":"","modele_probable":"","textes_lus":[],"taille_lue":"",'
-  + '"couleurs":"","matiere_lue":"","etat_observe":"","defauts":[],"details":[],"doutes":""}';
+  + '"couleurs":"","matiere_lue":"","pays_fabrication":"","code_produit":"","etat_observe":"","defauts":[],'
+  + '"details":[],"doutes":"","authenticite":"ok|douteux|impossible_a_dire","signaux_authenticite":[],"photo_a_ajouter":""}';
 
 const S = { type: "string" };
 const LS = { type: "array", items: { type: "string" } };
@@ -28,6 +30,7 @@ const ANNONCE_FORMAT = strict("annonce", {
   etat: { type: "string", enum: ETATS }, couleur: S, matiere: S,
   prix: { type: "integer" }, prix_min: { type: "integer" }, prix_max: { type: "integer" },
   hashtags: LS, notes_vendeur: S,
+  alerte: { type: "string", enum: ["aucune", "douteux"] }, raison_alerte: S, photo_a_ajouter: S,
 });
 
 export class AgentError extends Error {}
@@ -95,7 +98,7 @@ export function humanize(t) {
  * photosB64 : photos en base64 (JPEG). listing : l'annonce actuelle.
  * Renvoie les champs à enregistrer.
  */
-export async function generate({ key, cfg, listing, photosB64, extraHints = "", onStep }) {
+export async function generate({ key, cfg, listing, photosB64, extraHints = "", examples = [], onStep }) {
   if (!key) throw new AgentError("Ajoute ta clé Groq (gratuite, console.groq.com) dans Réglages pour activer l'agent.");
   if (!photosB64.length) throw new AgentError("Ajoute au moins une photo.");
   const visionModel = cfg.groq_vision_model || Object.keys(VISION_MODELS)[0];
@@ -126,6 +129,13 @@ export async function generate({ key, cfg, listing, photosB64, extraHints = "", 
     + JSON.stringify(notes, null, 1) + "\n\nPrépare l'annonce Vinted pour cet article.\n\n"
     + `Infos du vendeur : ${hints || "(aucune, débrouille-toi avec les photos)"}\n`;
   if (Object.keys(already).length) text += `Champs déjà renseignés par le vendeur (à respecter) : ${JSON.stringify(already)}\n`;
+  const brand = listing.brand || notes[0]?.marque || "";
+  text += `\nGuide anti-contrefaçon (signaux à croiser avec les notes) :\n${guideFor(brand)}\n`;
+  if (examples.length) {
+    text += "\nPièces déjà vérifiées par le vendeur lui-même (apprends de ses verdicts, ils font foi) :\n"
+      + examples.map((e) => `- ${e.title || e.brand || "pièce"} : ${e.authenticity === "fausse" ? "FAUSSE" : "AUTHENTIQUE"}`
+        + (e.auth_reason ? `, parce que ${e.auth_reason}` : "")).join("\n") + "\n";
+  }
   text += `\nPréférences d'écriture du vendeur :\n${styleInstructions(cfg)}\n`;
   text += `\nVariante d'écriture n°${1 + Math.floor(Math.random() * 999)} (change un peu ta formulation par rapport à d'habitude).`;
 
@@ -157,6 +167,12 @@ export async function generate({ key, cfg, listing, photosB64, extraHints = "", 
     price_min: a.prix_min,
     price_max: a.prix_max,
     hashtags: cfg.hashtags === false ? "" : tags,
-    ai_notes: (a.notes_vendeur || "").trim(),
+    ai_notes: [a.notes_vendeur, a.photo_a_ajouter && `Photo utile à ajouter : ${a.photo_a_ajouter}`]
+      .filter((x) => x && x.trim()).join("\n\n"),
+    // Un verdict déjà donné par le vendeur n'est jamais écrasé par l'agent
+    ...(["fausse", "authentique"].includes(listing.authenticity) ? {} : {
+      authenticity: a.alerte === "douteux" ? "douteux" : "",
+      auth_reason: a.alerte === "douteux" ? (a.raison_alerte || "").trim() : "",
+    }),
   };
 }

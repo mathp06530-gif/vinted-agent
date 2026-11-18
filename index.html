@@ -10,7 +10,7 @@
 <link rel="apple-touch-icon" href="icons/icon-192.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Vinted Agent">
-<link rel="stylesheet" href="style.css?v=6">
+<link rel="stylesheet" href="style.css?v=7">
 </head>
 <body>
 <header class="top">
@@ -65,6 +65,7 @@
     <button data-s="prete">Prêtes à publier</button>
     <button data-s="publiee">Publiées</button>
     <button data-s="vendue">Vendues</button>
+    <button data-s="douteuses">⚠️ Douteuses</button>
     <button data-s="">Tout</button>
   </nav>
   <section class="grid" id="grid"></section>
@@ -87,6 +88,16 @@
         <button type="button" class="primary" id="btn-agent">Lancer l'agent</button>
         <button type="button" id="btn-agent-settings" hidden>Ouvrir Réglages</button>
       </div>
+    </div>
+    <div class="auth-box" id="auth-box" hidden>
+      <b id="auth-title"></b>
+      <p id="auth-reason"></p>
+      <div class="field"><input id="auth-why" placeholder="Pourquoi ? ex : pas de code NF0A, étiquette « California Heritage »"></div>
+      <div class="row">
+        <button type="button" id="btn-auth-real">✓ Elle est vraie</button>
+        <button type="button" class="danger" id="btn-auth-fake">✗ Elle est fausse</button>
+      </div>
+      <small>Ton verdict sert d'exemple à l'agent pour les prochaines pièces.</small>
     </div>
     <div class="notes" id="ed-notes" hidden></div>
 
@@ -174,6 +185,6 @@
 <div class="toast" id="toast"></div>
 <div class="busy" id="busy" hidden><div class="spin"></div><p id="busy-text">L'agent regarde tes photos…</p></div>
 
-<script type="module" src="js/app.js?v=6"></script>
+<script type="module" src="js/app.js?v=7"></script>
 </body>
 </html>

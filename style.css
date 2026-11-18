@@ -141,3 +141,16 @@ dialog { overflow-x: hidden; overscroll-behavior: contain; }
   .cols { grid-template-columns: 1fr 1fr; }
   input, select, textarea { font-size: 16px; } /* évite le zoom auto d'iOS */
 }
+
+/* --- authenticité --- */
+.auth-box { border-radius: 10px; padding: 12px 14px; margin-bottom: 12px; border: 1px solid var(--warn-line); background: var(--warn-bg); }
+.auth-box p { margin: 6px 0 10px; }
+.auth-box .row { margin: 0 0 6px; flex-wrap: wrap; }
+.auth-box small { color: var(--muted); }
+.auth-box.fausse { border-color: var(--danger); background: color-mix(in srgb, var(--danger) 12%, var(--card)); }
+.auth-box.authentique { border-color: var(--st-vendue); background: var(--st-vendue-bg); }
+.auth-box.authentique .field, .auth-box.authentique small { display: none; }
+.auth-badge { display: inline-block; margin-top: 6px; font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 999px; }
+.auth-badge.warn { color: var(--st-brouillon); background: var(--st-brouillon-bg); }
+.auth-badge.bad { color: #fff; background: var(--danger); }
+.auth-badge.ok { color: var(--st-vendue); background: var(--st-vendue-bg); }

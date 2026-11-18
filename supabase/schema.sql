@@ -44,3 +44,7 @@ drop policy if exists "mes photos" on storage.objects;
 create policy "mes photos" on storage.objects for all to authenticated
   using (bucket_id = 'photos' and (storage.foldername(name))[1] = auth.uid()::text)
   with check (bucket_id = 'photos' and (storage.foldername(name))[1] = auth.uid()::text);
+
+-- v2 : authenticité (onglet « Douteuses » + verdicts qui servent d'exemples à l'agent)
+alter table public.listings add column if not exists authenticity text not null default '';
+alter table public.listings add column if not exists auth_reason text not null default '';

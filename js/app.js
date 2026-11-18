@@ -1,6 +1,6 @@
-import * as store from "./store.js?v=6";
-import { generate, VISION_MODELS, TEXT_MODELS, MAX_IMAGES } from "./agent.js?v=6";
-import { toJpeg, makeSheets } from "./images.js?v=6";
+import * as store from "./store.js?v=7";
+import { generate, VISION_MODELS, TEXT_MODELS, MAX_IMAGES } from "./agent.js?v=7";
+import { toJpeg, makeSheets } from "./images.js?v=7";
 
 const $ = (s) => document.querySelector(s);
 const STATUS_LABEL = { brouillon: "À vérifier", prete: "Prête", publiee: "Publiée", vendue: "Vendue" };
@@ -77,11 +77,11 @@ async function refresh() {
 
   document.querySelectorAll("#tabs button").forEach((b) => {
     b.classList.toggle("active", b.dataset.s === tab);
-    const n = b.dataset.s ? count(b.dataset.s) : items.length;
+    const n = b.dataset.s ? filterTab(b.dataset.s).length : items.length;
     b.innerHTML = b.textContent.replace(/\s*\d+$/, "") + `<span class="n">${n}</span>`;
   });
 
-  const list = tab ? items.filter((i) => i.status === tab) : items;
+  const list = tab ? filterTab(tab) : items;
   const covers = await guard(() => store.photoUrls(list.map((i) => i.photos[0]).filter(Boolean))) || {};
   $("#grid").innerHTML = list.length ? list.map((i) => `
     <button class="item" data-id="${i.id}">
@@ -89,9 +89,19 @@ async function refresh() {
       <div class="meta">
         <div class="t">${esc(i.title) || "<em>Sans titre</em>"}</div>
         <div class="p"><span class="price">${euro(i.price)}</span><span class="badge ${i.status}">${STATUS_LABEL[i.status]}</span></div>
+        ${AUTH_BADGE[i.authenticity] || ""}
       </div>
     </button>`).join("")
-    : `<p class="empty">Rien ici pour l'instant.</p>`;
+    : `<p class="empty">${tab === "douteuses" ? "Aucune pièce douteuse. L'agent range ici celles qui lui paraissent suspectes." : "Rien ici pour l'instant."}</p>`;
+}
+const AUTH_BADGE = {
+  douteux: '<span class="auth-badge warn">⚠️ Douteuse</span>',
+  fausse: '<span class="auth-badge bad">✗ Fausse</span>',
+  authentique: '<span class="auth-badge ok">✓ Vérifiée</span>',
+};
+function filterTab(t) {
+  if (t === "douteuses") return items.filter((i) => ["douteux", "fausse"].includes(i.authenticity));
+  return items.filter((i) => i.status === t);
 }
 $("#grid").addEventListener("click", (e) => { const b = e.target.closest(".item"); if (b) openEditor(+b.dataset.id); });
 $("#tabs").addEventListener("click", (e) => { const b = e.target.closest("button"); if (b) { tab = b.dataset.s; refresh(); } });
@@ -124,7 +134,12 @@ async function uploadFiles(files, onProgress) {
 async function runAgent(listing, blobs, extraHints, onStep) {
   if (!blobs) blobs = await Promise.all(listing.photos.map(store.downloadPhoto));
   const photosB64 = await makeSheets(blobs, MAX_IMAGES);
-  const fields = await generate({ key: cfg.groq_api_key, cfg, listing, photosB64, extraHints, onStep });
+  // Tes verdicts (vraie / fausse) servent d'exemples à l'agent : les 15 plus récents
+  const examples = items
+    .filter((i) => i.id !== listing.id && ["fausse", "authentique"].includes(i.authenticity))
+    .slice(0, 15)
+    .map(({ title, brand, authenticity, auth_reason }) => ({ title, brand, authenticity, auth_reason }));
+  const fields = await generate({ key: cfg.groq_api_key, cfg, listing, photosB64, extraHints, examples, onStep });
   return store.updateListing(listing.id, fields);
 }
 
@@ -219,7 +234,41 @@ async function fillEditor() {
   $("#btn-next").textContent = nl; $("#btn-next").onclick = nf;
   $("#btn-alt").hidden = !al; $("#btn-alt").textContent = al; $("#btn-alt").onclick = af;
   $("#ed-hint").textContent = hint;
+  // Pièce jugée fausse : on bloque la publication
+  const fake = c.authenticity === "fausse";
+  $("#btn-next").hidden = fake && ["brouillon", "prete"].includes(c.status);
+  $("#publish-help").hidden = fake || c.status !== "prete";
+  if (fake) $("#ed-hint").textContent = "Contrefaçon : ne la publie pas sur Vinted (interdit, risque de blocage du compte).";
+  renderAuthBox();
 }
+
+// ---------- authenticité ----------
+function renderAuthBox() {
+  const c = current, a = c.authenticity || "";
+  const box = $("#auth-box");
+  box.hidden = !a; // rien à montrer si l'agent n'a rien signalé et pas de verdict
+  box.className = `auth-box ${a}`;
+  $("#auth-title").textContent = {
+    douteux: "⚠️ L'agent pense que cette pièce est peut-être une contrefaçon",
+    fausse: "✗ Tu as marqué cette pièce comme fausse",
+    authentique: "✓ Tu as vérifié : pièce authentique",
+  }[a] || "";
+  $("#auth-reason").textContent = c.auth_reason || "";
+  $("#auth-why").value = "";
+}
+async function setVerdict(verdict) {
+  const why = $("#auth-why").value.trim();
+  await guard(async () => {
+    current = await store.updateListing(current.id, {
+      authenticity: verdict,
+      auth_reason: why || current.auth_reason || "",
+    });
+    await fillEditor(); refresh();
+    toast(verdict === "fausse" ? "Marquée fausse. L'agent s'en souviendra." : "Marquée authentique. L'agent s'en souviendra.");
+  });
+}
+$("#btn-auth-real").addEventListener("click", () => setVerdict("authentique"));
+$("#btn-auth-fake").addEventListener("click", () => setVerdict("fausse"));
 
 async function renderPhotos() {
   const ph = current.photos;
