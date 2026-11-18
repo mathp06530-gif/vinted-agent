@@ -1,6 +1,6 @@
-import * as store from "./store.js?v=8";
-import { generate, VISION_MODELS, TEXT_MODELS, MAX_IMAGES } from "./agent.js?v=8";
-import { toJpeg, makeSheets } from "./images.js?v=8";
+import * as store from "./store.js?v=9";
+import { generate, VISION_MODELS, TEXT_MODELS, MAX_IMAGES } from "./agent.js?v=9";
+import { toJpeg, makeSheets } from "./images.js?v=9";
 
 const $ = (s) => document.querySelector(s);
 const STATUS_LABEL = { brouillon: "À vérifier", prete: "Prête", publiee: "Publiée", vendue: "Vendue" };

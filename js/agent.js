@@ -1,6 +1,6 @@
 // L'agent : Qwen (vision) regarde les photos, GPT-OSS 120B écrit l'annonce. Tout passe par Groq.
-import { SYSTEM, VISION_PROMPT } from "./prompts.js?v=8";
-import { guideFor } from "./legit.js?v=8";
+import { SYSTEM, VISION_PROMPT } from "./prompts.js?v=9";
+import { guideFor } from "./legit.js?v=9";
 
 const GROQ_URL = "https://api.groq.com/openai/v1/chat/completions";
 export const VISION_MODELS = { "qwen/qwen3.8-27b": "Qwen 3.8 27B (vision)" };
