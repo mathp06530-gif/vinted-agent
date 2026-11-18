@@ -1,5 +1,5 @@
 // L'agent : Qwen (vision) regarde les photos, GPT-OSS 120B écrit l'annonce. Tout passe par Groq.
-import { SYSTEM, VISION_PROMPT } from "./prompts.js";
+import { SYSTEM, VISION_PROMPT } from "./prompts.js?v=6";
 
 const GROQ_URL = "https://api.groq.com/openai/v1/chat/completions";
 export const VISION_MODELS = { "qwen/qwen3.8-27b": "Qwen 3.8 27B (vision)" };
@@ -8,8 +8,11 @@ export const TEXT_MODELS = {
   "openai/gpt-oss-20b": "GPT-OSS 20B (plus rapide)",
 };
 export const ETATS = ["Neuf avec étiquette", "Neuf sans étiquette", "Très bon état", "Bon état", "Satisfaisant"];
-const IMAGES_PER_CALL = 3;
-const MAX_PHOTOS = 9;
+// Limite gratuite Groq : ~7000 tokens/minute pour le modèle vision, ~2000 par image.
+// On envoie donc au plus 3 images (les photos en trop sont regroupées en planches avant).
+export const MAX_IMAGES = 3;
+const OBS_KEYS = '{"type_article":"","marque":"","modele_probable":"","textes_lus":[],"taille_lue":"",'
+  + '"couleurs":"","matiere_lue":"","etat_observe":"","defauts":[],"details":[],"doutes":""}';
 
 const S = { type: "string" };
 const LS = { type: "array", items: { type: "string" } };
@@ -19,10 +22,6 @@ const strict = (name, props) => ({
     name, strict: true,
     schema: { type: "object", properties: props, required: Object.keys(props), additionalProperties: false },
   },
-});
-const OBS_FORMAT = strict("observations", {
-  type_article: S, marque: S, modele_probable: S, textes_lus: LS, taille_lue: S, couleurs: S,
-  matiere_lue: S, etat_observe: S, defauts: LS, details: LS, doutes: S,
 });
 const ANNONCE_FORMAT = strict("annonce", {
   titre: S, description: S, marque: S, modele: S, categorie: S, taille: S,
@@ -103,21 +102,19 @@ export async function generate({ key, cfg, listing, photosB64, extraHints = "", 
   const textModel = cfg.groq_text_model || "openai/gpt-oss-120b";
   const hints = [listing.hints, extraHints].filter((h) => h && h.trim()).join("\n");
 
-  // 1. L'œil regarde les photos par paquets de 3
-  const photos = photosB64.slice(0, MAX_PHOTOS);
-  const notes = [];
-  for (let s = 0; s < photos.length; s += IMAGES_PER_CALL) {
-    onStep?.(`L'agent regarde les photos ${s + 1} à ${Math.min(s + IMAGES_PER_CALL, photos.length)}…`);
-    const content = [{ type: "text", text: VISION_PROMPT + (hints ? `\n\nInfo du vendeur : ${hints}` : "") }];
-    photos.slice(s, s + IMAGES_PER_CALL).forEach((b64, i) => {
-      content.push({ type: "text", text: `Photo ${s + i + 1} :` });
-      content.push({ type: "image_url", image_url: { url: `data:image/jpeg;base64,${b64}` } });
-    });
-    notes.push(await groq(key, {
-      model: visionModel, messages: [{ role: "user", content }],
-      response_format: OBS_FORMAT, max_completion_tokens: 2000, temperature: 0.2,
-    }, onStep));
-  }
+  // 1. L'œil regarde les photos (un seul envoi, 3 images max)
+  onStep?.("L'agent regarde tes photos…");
+  const content = [{ type: "text", text: VISION_PROMPT
+    + "\n\nCertaines images peuvent être des planches qui regroupent plusieurs photos numérotées."
+    + (hints ? `\n\nInfo du vendeur : ${hints}` : "")
+    + `\n\nRéponds UNIQUEMENT avec un objet JSON qui a exactement ces clés :\n${OBS_KEYS}` }];
+  photosB64.slice(0, MAX_IMAGES).forEach((b64) => {
+    content.push({ type: "image_url", image_url: { url: `data:image/jpeg;base64,${b64}` } });
+  });
+  const notes = [await groq(key, {
+    model: visionModel, messages: [{ role: "user", content }],
+    response_format: { type: "json_object" }, max_completion_tokens: 3000, temperature: 0.2,
+  }, onStep)];
 
   // 2. Le rédacteur écrit l'annonce
   onStep?.("L'agent rédige l'annonce…");
@@ -140,6 +137,10 @@ export async function generate({ key, cfg, listing, photosB64, extraHints = "", 
   if (textModel.includes("gpt-oss")) body.reasoning_effort = "medium";
   const a = await groq(key, body, onStep);
 
+  // « Inconnu », « Non visible »... = champ vide (le doute est dans les notes)
+  for (const k of ["marque", "modele", "categorie", "taille", "couleur", "matiere"]) {
+    if (/^\s*(inconnue?s?|non (visible|précisée?|identifiée?)|n\/?a|aucune?|-|\?)\s*$/i.test(a[k] || "")) a[k] = "";
+  }
   const tags = (a.hashtags || []).filter((t) => String(t).trim())
     .map((t) => "#" + String(t).toLowerCase().replace(/^#/, "").replace(/[^\p{L}\p{N}_]/gu, "")).join(" ");
   return {

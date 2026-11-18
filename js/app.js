@@ -1,6 +1,6 @@
-import * as store from "./store.js";
-import { generate, AgentError, VISION_MODELS, TEXT_MODELS } from "./agent.js";
-import { toJpeg, blobToBase64 } from "./images.js";
+import * as store from "./store.js?v=6";
+import { generate, VISION_MODELS, TEXT_MODELS, MAX_IMAGES } from "./agent.js?v=6";
+import { toJpeg, makeSheets } from "./images.js?v=6";
 
 const $ = (s) => document.querySelector(s);
 const STATUS_LABEL = { brouillon: "À vérifier", prete: "Prête", publiee: "Publiée", vendue: "Vendue" };
@@ -123,7 +123,7 @@ async function uploadFiles(files, onProgress) {
 
 async function runAgent(listing, blobs, extraHints, onStep) {
   if (!blobs) blobs = await Promise.all(listing.photos.map(store.downloadPhoto));
-  const photosB64 = await Promise.all(blobs.map(blobToBase64));
+  const photosB64 = await makeSheets(blobs, MAX_IMAGES);
   const fields = await generate({ key: cfg.groq_api_key, cfg, listing, photosB64, extraHints, onStep });
   return store.updateListing(listing.id, fields);
 }
@@ -168,21 +168,23 @@ function renderAgentBox() {
 
 async function runAgentInEditor(btn) {
   const label = btn.textContent;
+  const id = current?.id;
+  if (!id) return;
   document.querySelectorAll("#btn-agent, #btn-regen").forEach((b) => { b.disabled = true; });
   try {
     await save(true);
     current = await runAgent(current, null, $("#regen-hint").value, (t) => { btn.textContent = t; });
-    agentErrors.delete(current.id);
+    agentErrors.delete(id);
     $("#regen-hint").value = "";
     await fillEditor(); refresh(); toast("Annonce rédigée");
   } catch (e) {
-    agentErrors.set(current.id, e.message);
-    renderAgentBox();
+    agentErrors.set(id, e.message);
+    if (current) renderAgentBox();
     $("#agent-box").scrollIntoView({ behavior: "smooth", block: "center" });
   }
   document.querySelectorAll("#btn-agent, #btn-regen").forEach((b) => { b.disabled = false; });
   btn.textContent = label;
-  renderAgentBox();
+  if (current) renderAgentBox();
 }
 $("#btn-agent").addEventListener("click", (e) => runAgentInEditor(e.currentTarget));
 $("#btn-agent-settings").addEventListener("click", () => $("#btn-settings").click());

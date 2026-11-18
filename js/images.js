@@ -38,3 +38,34 @@ export function blobToBase64(blob) {
     r.readAsDataURL(blob);
   });
 }
+
+// Regroupe les photos en au plus `max` images (planches numérotées) pour rester
+// dans la limite gratuite de Groq tout en montrant toutes les photos à l'agent.
+export async function makeSheets(blobs, max = 3) {
+  if (blobs.length <= max) return Promise.all(blobs.map(blobToBase64));
+  const groups = Array.from({ length: max }, () => []);
+  blobs.forEach((b, i) => groups[Math.floor((i * max) / blobs.length)].push({ b, n: i + 1 }));
+  const out = [];
+  for (const g of groups) {
+    const cols = Math.ceil(Math.sqrt(g.length)), rows = Math.ceil(g.length / cols);
+    const tile = Math.floor(1568 / Math.max(cols, rows));
+    const c = document.createElement("canvas");
+    c.width = cols * tile; c.height = rows * tile;
+    const ctx = c.getContext("2d");
+    ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, c.width, c.height);
+    for (const [k, { b, n }] of g.entries()) {
+      const img = await createImageBitmap(b);
+      const s = Math.min(tile / img.width, tile / img.height);
+      const w = img.width * s, h = img.height * s;
+      const x = (k % cols) * tile + (tile - w) / 2, y = Math.floor(k / cols) * tile + (tile - h) / 2;
+      ctx.drawImage(img, x, y, w, h);
+      img.close?.();
+      ctx.fillStyle = "rgba(0,0,0,.75)"; ctx.fillRect((k % cols) * tile + 6, Math.floor(k / cols) * tile + 6, 120, 44);
+      ctx.fillStyle = "#fff"; ctx.font = "bold 30px sans-serif";
+      ctx.fillText(`Photo ${n}`, (k % cols) * tile + 14, Math.floor(k / cols) * tile + 39);
+    }
+    const blob = await new Promise((r) => c.toBlob(r, "image/jpeg", 0.88));
+    out.push(await blobToBase64(blob));
+  }
+  return out;
+}
