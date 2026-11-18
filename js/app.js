@@ -138,14 +138,55 @@ $("#btn-create").addEventListener("click", async () => {
     newFiles = []; setNewFiles([]); $("#new-hints").value = "";
     try {
       item = await runAgent(item, blobs, "", (t) => busy(true, t));
+      agentErrors.delete(item.id);
       toast("Annonce prête à vérifier");
-    } catch (e) { toast(e.message, 7000); }
-    tab = "brouillon"; await refresh(); openEditor(item.id);
+    } catch (e) { agentErrors.set(item.id, e.message); } // affiché dans la fiche
+    tab = "brouillon"; await refresh(); busy(false); openEditor(item.id);
   } catch (e) { toast(e.message, 7000); }
   busy(false);
 });
 
 // ---------- éditeur ----------
+const agentErrors = new Map(); // id annonce -> dernière erreur de l'agent
+
+// Encadré en haut de la fiche : annonce pas encore rédigée, ou erreur de l'agent
+function renderAgentBox() {
+  const c = current;
+  const err = agentErrors.get(c.id);
+  const empty = !c.title && !c.description;
+  const noKey = !cfg.groq_api_key;
+  const box = $("#agent-box");
+  box.hidden = !(err || empty);
+  box.classList.toggle("error", Boolean(err));
+  $("#agent-msg").textContent = noKey
+    ? "L'agent ne peut pas travailler : ta clé Groq n'est pas encore enregistrée. Ouvre Réglages, colle ta clé, puis lance l'agent."
+    : err ? `L'agent n'a pas réussi : ${err}`
+    : "L'agent n'a pas encore rédigé cette annonce.";
+  $("#btn-agent-settings").hidden = !noKey;
+  $("#btn-agent").textContent = err ? "Réessayer" : "Lancer l'agent";
+}
+
+async function runAgentInEditor(btn) {
+  const label = btn.textContent;
+  document.querySelectorAll("#btn-agent, #btn-regen").forEach((b) => { b.disabled = true; });
+  try {
+    await save(true);
+    current = await runAgent(current, null, $("#regen-hint").value, (t) => { btn.textContent = t; });
+    agentErrors.delete(current.id);
+    $("#regen-hint").value = "";
+    await fillEditor(); refresh(); toast("Annonce rédigée");
+  } catch (e) {
+    agentErrors.set(current.id, e.message);
+    renderAgentBox();
+    $("#agent-box").scrollIntoView({ behavior: "smooth", block: "center" });
+  }
+  document.querySelectorAll("#btn-agent, #btn-regen").forEach((b) => { b.disabled = false; });
+  btn.textContent = label;
+  renderAgentBox();
+}
+$("#btn-agent").addEventListener("click", (e) => runAgentInEditor(e.currentTarget));
+$("#btn-agent-settings").addEventListener("click", () => $("#btn-settings").click());
+
 async function openEditor(id) {
   current = await guard(() => store.getListing(id));
   if (!current) return;
@@ -162,6 +203,7 @@ async function fillEditor() {
   $("#ed-notes").hidden = !c.ai_notes;
   $("#ed-notes").innerHTML = c.ai_notes ? `<b>Note de l'agent (pas publiée)</b>${esc(c.ai_notes)}` : "";
   $("#publish-help").hidden = c.status !== "prete";
+  renderAgentBox();
   await renderPhotos();
 
   const [nl, nf, al, af, hint] = {
@@ -244,17 +286,7 @@ $("#btn-delete").addEventListener("click", () => guard(async () => {
   $("#editor").close(); refresh(); toast("Annonce supprimée");
 }));
 
-$("#btn-regen").addEventListener("click", async () => {
-  const btn = $("#btn-regen"), label = btn.textContent;
-  btn.disabled = true;
-  try {
-    await save(true);
-    current = await runAgent(current, null, $("#regen-hint").value, (t) => { btn.textContent = t; });
-    $("#regen-hint").value = "";
-    await fillEditor(); refresh(); toast("Nouvelle version");
-  } catch (e) { toast(e.message, 7000); }
-  btn.disabled = false; btn.textContent = label;
-});
+$("#btn-regen").addEventListener("click", (e) => runAgentInEditor(e.currentTarget));
 
 document.querySelectorAll(".copy").forEach((b) => b.addEventListener("click", async () => {
   const d = formData();
@@ -303,6 +335,7 @@ $("#btn-set-save").addEventListener("click", () => guard(async () => {
   await store.saveSettings(next);
   cfg = next; $("#s-groq_api_key").value = "";
   $("#settings").close(); toast("Réglages enregistrés");
+  if ($("#editor").open && current) renderAgentBox();
 }));
 $("#btn-logout").addEventListener("click", async () => {
   await store.signOut(); $("#settings").close(); items = []; start();
