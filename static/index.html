@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vinted Agent</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header class="top">
+  <div class="brand">
+    <span class="logo">V</span>
+    <div><h1>Vinted Agent</h1><p class="sub">Tes annonces, préparées pour toi</p></div>
+  </div>
+  <button class="ghost" id="btn-settings">Réglages</button>
+</header>
+
+<main>
+  <section class="stats" id="stats"></section>
+
+  <section class="new card">
+    <h2>Nouvelle annonce</h2>
+    <label class="drop" id="drop">
+      <input type="file" id="new-photos" accept="image/*" multiple hidden>
+      <div id="drop-text"><strong>Dépose tes photos ici</strong><span>ou clique pour les choisir (photo de l'étiquette = annonce plus précise)</span></div>
+      <div class="thumbs" id="new-thumbs"></div>
+    </label>
+    <textarea id="new-hints" rows="2" placeholder="Infos en plus (facultatif) : taille, porté 2 fois, petite tache manche gauche, acheté 90€..."></textarea>
+    <div class="row end">
+      <button id="btn-create" class="primary" disabled>Créer l'annonce avec l'agent</button>
+    </div>
+  </section>
+
+  <nav class="tabs" id="tabs">
+    <button data-s="brouillon" class="active">À vérifier</button>
+    <button data-s="prete">Prêtes à publier</button>
+    <button data-s="publiee">Publiées</button>
+    <button data-s="vendue">Vendues</button>
+    <button data-s="">Tout</button>
+  </nav>
+  <section class="grid" id="grid"></section>
+</main>
+
+<!-- Éditeur -->
+<dialog id="editor">
+  <form method="dialog" class="ed" id="ed-form">
+    <div class="ed-head">
+      <span class="badge" id="ed-status"></span>
+      <button class="ghost" value="close" formnovalidate>Fermer</button>
+    </div>
+
+    <div class="ed-photos" id="ed-photos"></div>
+    <label class="ghost small add-photos">+ Ajouter des photos<input type="file" id="ed-add" accept="image/*" multiple hidden></label>
+
+    <div class="notes" id="ed-notes" hidden></div>
+
+    <div class="field"><label>Titre <button type="button" class="copy" data-copy="title">Copier</button></label>
+      <input id="f-title" maxlength="100"></div>
+    <div class="field"><label>Description <button type="button" class="copy" data-copy="desc">Copier (avec hashtags)</button></label>
+      <textarea id="f-description" rows="7"></textarea></div>
+    <div class="field"><label>Hashtags</label><input id="f-hashtags"></div>
+
+    <div class="cols">
+      <div class="field"><label>Marque</label><input id="f-brand"></div>
+      <div class="field"><label>Modèle</label><input id="f-model"></div>
+      <div class="field"><label>Catégorie</label><input id="f-category"></div>
+      <div class="field"><label>Taille</label><input id="f-size"></div>
+      <div class="field"><label>État</label>
+        <select id="f-condition">
+          <option value=""></option>
+          <option>Neuf avec étiquette</option><option>Neuf sans étiquette</option>
+          <option>Très bon état</option><option>Bon état</option><option>Satisfaisant</option>
+        </select></div>
+      <div class="field"><label>Couleur</label><input id="f-color"></div>
+      <div class="field"><label>Matière</label><input id="f-material"></div>
+      <div class="field"><label>Prix (€)</label><input id="f-price" type="number" min="1" step="1">
+        <small id="price-range"></small></div>
+    </div>
+    <div class="field"><label>Infos pour l'agent</label>
+      <textarea id="f-hints" rows="2" placeholder="taille, défauts, ce que tu veux qu'il dise..."></textarea></div>
+
+    <div class="regen">
+      <input id="regen-hint" placeholder="Consigne pour réécrire (ex : plus court, parle de la coupe oversize)">
+      <button type="button" id="btn-regen">Réécrire</button>
+      <button type="button" class="ghost small" id="btn-offline" title="Sans IA, à partir des champs remplis">Sans IA</button>
+    </div>
+
+    <div class="ed-actions">
+      <button type="button" class="danger ghost" id="btn-delete">Supprimer</button>
+      <div class="spacer"></div>
+      <button type="button" id="btn-save">Enregistrer</button>
+      <button type="button" class="primary" id="btn-next"></button>
+      <button type="button" id="btn-alt" class="ghost"></button>
+    </div>
+    <p class="hint" id="ed-hint"></p>
+  </form>
+</dialog>
+
+<!-- Réglages -->
+<dialog id="settings">
+  <form method="dialog" class="ed" id="set-form">
+    <div class="ed-head"><h2>Réglages</h2><button class="ghost" value="close" formnovalidate>Fermer</button></div>
+    <div class="field"><label>Moteur de l'agent</label>
+      <select id="s-provider"><option value="groq">Groq (gratuit, modèles open source)</option><option value="anthropic">Claude (payant, le plus précis)</option></select></div>
+    <div id="prov-groq">
+      <div class="field"><label>Clé Groq <span id="gkey-state"></span></label>
+        <input id="s-groq_api_key" type="password" placeholder="gsk_... (laisse vide pour garder l'actuelle)" autocomplete="off">
+        <small>Gratuite sur console.groq.com → API Keys. Elle reste sur ton PC (data/config.json).</small></div>
+      <div class="cols">
+        <div class="field"><label>Modèle qui regarde les photos</label><select id="s-groq_vision_model"></select></div>
+        <div class="field"><label>Modèle qui écrit l'annonce</label><select id="s-groq_text_model"></select></div>
+      </div>
+    </div>
+    <div id="prov-anthropic">
+      <div class="field"><label>Clé API Anthropic <span id="key-state"></span></label>
+        <input id="s-api_key" type="password" placeholder="sk-ant-... (laisse vide pour garder l'actuelle)" autocomplete="off">
+        <small>À créer sur console.anthropic.com. Elle reste sur ton PC (data/config.json).</small></div>
+      <div class="field"><label>Modèle Claude</label><select id="s-model"></select></div>
+    </div>
+    <div class="cols">
+      <div class="field"><label>Style d'écriture</label>
+        <select id="s-style"><option value="naturel">Naturel</option><option value="court">Très court</option><option value="detaille">Détaillé</option></select></div>
+      <div class="field"><label>Prix conseillé</label>
+        <select id="s-marge_prix"><option value="vente_rapide">Vendre vite</option><option value="normal">Prix du marché</option><option value="haut">Prix haut</option></select></div>
+      <div class="field"><label>Emojis</label>
+        <select id="s-emojis"><option value="jamais">Jamais</option><option value="rare">Rarement</option><option value="oui">Oui</option></select></div>
+      <div class="field"><label>S'adresser à l'acheteur</label>
+        <select id="s-tutoiement"><option value="true">Tutoiement</option><option value="false">Vouvoiement</option></select></div>
+    </div>
+    <div class="field"><label><input type="checkbox" id="s-hashtags"> Ajouter des hashtags</label></div>
+    <div class="field"><label>Ta phrase de fin habituelle</label>
+      <input id="s-signature" placeholder="ex : envoi rapide, je fais des lots, n'hésite pas à faire une offre"></div>
+    <div class="ed-actions"><div class="spacer"></div><button type="button" class="primary" id="btn-set-save">Enregistrer</button></div>
+  </form>
+</dialog>
+
+<div class="toast" id="toast"></div>
+<div class="busy" id="busy" hidden><div class="spin"></div><p id="busy-text">L'agent regarde tes photos…</p></div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

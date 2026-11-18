@@ -1,0 +1,5 @@
+# Données perso : clés API, session Vinted, photos, base d'annonces
+data/
+__pycache__/
+*.pyc
+.env
