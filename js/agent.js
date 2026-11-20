@@ -1,7 +1,8 @@
 // L'agent : Qwen (vision) regarde les photos, GPT-OSS 120B écrit l'annonce. Tout passe par Groq.
-import { SYSTEM, VISION_PROMPT } from "./prompts.js?v=13";
-import { guideFor } from "./legit.js?v=13";
-import { categoriesFor } from "./categories.js?v=13";
+import { SYSTEM, VISION_PROMPT } from "./prompts.js?v=15";
+import { guideFor } from "./legit.js?v=15";
+import { categoriesFor } from "./categories.js?v=15";
+import { modelsFor } from "./models.js?v=15";
 
 const GROQ_URL = "https://api.groq.com/openai/v1/chat/completions";
 export const VISION_MODELS = { "qwen/qwen3.8-27b": "Qwen 3.8 27B (vision)" };
@@ -16,10 +17,11 @@ export const LOCKABLE = ["gender", "size", "brand", "model", "category", "condit
 // Limite gratuite Groq : ~7000 tokens/minute pour le modèle vision, ~2000 par image.
 // On envoie donc au plus 3 images (les photos en trop sont regroupées en planches avant).
 export const MAX_IMAGES = 3;
-const OBS_KEYS = '{"type_article":"","coupe":"","marque":"","modele_probable":"","textes_lus":[],"taille_lue":"","indices_genre":"",'
+const OBS_KEYS = '{"type_article":"","coupe":"","marque":"","preuve_marque":"texte lu|logo|aucune","modele_probable":"","textes_lus":[],"taille_lue":"","indices_genre":"",'
   + '"couleurs":"","matiere_lue":"","pays_fabrication":"","code_produit":"","etat_observe":"","defauts":[],'
   + '"details":[],"doutes":"","authenticite":"ok|douteux|impossible_a_dire","signaux_authenticite":[],"photo_a_ajouter":""}';
 
+const CONF = ["haute", "moyenne", "basse"];
 const S = { type: "string" };
 const LS = { type: "array", items: { type: "string" } };
 const strict = (name, props) => ({
@@ -36,6 +38,8 @@ const ANNONCE_FORMAT = strict("annonce", {
   prix: { type: "integer" }, prix_min: { type: "integer" }, prix_max: { type: "integer" },
   hashtags: LS, notes_vendeur: S,
   alerte: { type: "string", enum: ["aucune", "douteux"] }, raison_alerte: S, photo_a_ajouter: S,
+  confiance_marque: { type: "string", enum: CONF }, confiance_modele: { type: "string", enum: CONF },
+  confiance_type: { type: "string", enum: CONF }, confiance_taille: { type: "string", enum: CONF },
 });
 
 export class AgentError extends Error {}
@@ -103,7 +107,7 @@ export function humanize(t) {
  * photosB64 : photos en base64 (JPEG). listing : l'annonce actuelle.
  * Renvoie les champs à enregistrer.
  */
-export async function generate({ key, cfg, listing, photosB64, extraHints = "", examples = [], onStep }) {
+export async function generate({ key, cfg, listing, photosB64, extraHints = "", examples = [], corrections = [], onStep }) {
   if (!key) throw new AgentError("Ajoute ta clé Groq (gratuite, console.groq.com) dans Réglages pour activer l'agent.");
   if (!photosB64.length) throw new AgentError("Ajoute au moins une photo.");
   const visionModel = cfg.groq_vision_model || Object.keys(VISION_MODELS)[0];
@@ -141,6 +145,11 @@ export async function generate({ key, cfg, listing, photosB64, extraHints = "", 
   }
   text += `\nCatégories Vinted disponibles :\n${categoriesFor(manual.gender)}\n`;
   const brand = manual.brand || notes[0]?.marque || "";
+  text += `\n${modelsFor(brand)}\n`;
+  if (corrections.length) {
+    text += "\nErreurs que tu as déjà faites et que le vendeur a corrigées (apprends-en, ne les refais pas) :\n"
+      + corrections.map((c) => `- ${c.titre ? `« ${c.titre} » : ` : ""}${LABELS[c.champ] || c.champ} « ${c.agent || "(vide)"} » corrigé en « ${c.vendeur} »`).join("\n") + "\n";
+  }
   text += `\nGuide anti-contrefaçon (signaux à croiser avec les notes) :\n${guideFor(brand)}\n`;
   if (examples.length) {
     text += "\nPièces déjà vérifiées par le vendeur lui-même (apprends de ses verdicts, ils font foi) :\n"
@@ -162,6 +171,33 @@ export async function generate({ key, cfg, listing, photosB64, extraHints = "", 
   for (const k of ["marque", "modele", "categorie", "taille", "couleur", "matiere"]) {
     if (/^\s*(inconnue?s?|non (visible|précisée?|identifiée?|indiquée?)|n\/?a|aucune?|-|\?)\s*$/i.test(a[k] || "")) a[k] = "";
   }
+
+  // --- Garde-fou : pas de marque ni de modèle « sûrs » sans preuve vue sur les photos ---
+  const norm = (x) => String(x || "").toLowerCase().normalize("NFD").replace(/[^a-z0-9]/g, "");
+  const n0 = notes[0] || {};
+  const read = norm([...(n0.textes_lus || []), n0.code_produit, n0.modele_probable].join(" "));
+  const proof = String(n0.preuve_marque || "").toLowerCase();
+  const order = { basse: 0, moyenne: 1, haute: 2 };
+  const cap = (k, max) => { if (order[a[k]] > order[max]) a[k] = max; };
+  if (a.marque && !manual.brand) {
+    const b = norm(a.marque);
+    const brandRead = b.length >= 2 && read.includes(b);
+    const visionSaw = norm(n0.marque) && (norm(n0.marque).includes(b) || b.includes(norm(n0.marque)));
+    if (!brandRead && (!visionSaw || proof.startsWith("aucun"))) {
+      // marque devinée d'après le style : on la retire partout et on demande l'étiquette
+      const re = new RegExp(`\\s*${a.marque.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*`, "gi");
+      a.titre = a.titre.replace(re, " ").replace(/\s{2,}/g, " ").trim();
+      a.description = a.description.replace(re, " ").replace(/\s{2,}/g, " ").trim();
+      a.hashtags = (a.hashtags || []).filter((t) => norm(t) !== b);
+      a.marque = ""; a.confiance_marque = "basse";
+      a.notes_vendeur = `Marque non lisible sur les photos (ni étiquette ni logo clair) : je ne l'ai pas devinée. ${a.notes_vendeur || ""}`.trim();
+      if (!a.photo_a_ajouter) a.photo_a_ajouter = "étiquette de marque au col (de près, bien nette)";
+    } else if (!brandRead) cap("confiance_marque", proof.startsWith("logo") ? "haute" : "moyenne");
+  }
+  if (!a.marque && !manual.brand) a.confiance_marque = "basse";
+  if (a.modele && !manual.model && !read.includes(norm(a.modele)) && !norm(n0.modele_probable)) cap("confiance_modele", "moyenne");
+  if (!a.modele && !manual.model) a.confiance_modele = "basse";
+  if (!a.taille && !manual.size) a.confiance_taille = "basse";
   // Filet de sécurité : jamais de « taille non indiquée » dans le texte public
   const noUnknown = (t) => String(t || "")
     .replace(/[,\s]*(taille|pointure|matière)\s+(non\s+(indiquée?|visible|précisée?)|inconnue?)/gi, "")
@@ -187,6 +223,10 @@ export async function generate({ key, cfg, listing, photosB64, extraHints = "", 
     price_min: a.prix_min,
     price_max: a.prix_max,
     hashtags: cfg.hashtags === false ? "" : tags,
+    // degré de certitude de l'agent, champ par champ (ce que le vendeur a saisi = certain)
+    ai_confidence: Object.fromEntries(Object.entries({
+      brand: a.confiance_marque, model: a.confiance_modele, category: a.confiance_type, size: a.confiance_taille,
+    }).map(([k, v]) => [k, manual[k] ? "haute" : (CONF.includes(v) ? v : "moyenne")])),
     ai_notes: [a.notes_vendeur, a.photo_a_ajouter && `Photo utile à ajouter : ${a.photo_a_ajouter}`]
       .filter((x) => x && x.trim()).join("\n\n"),
     // Un verdict déjà donné par le vendeur n'est jamais écrasé par l'agent

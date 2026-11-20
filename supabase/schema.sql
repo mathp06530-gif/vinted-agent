@@ -52,3 +52,6 @@ alter table public.listings add column if not exists auth_reason text not null d
 -- v3 : genre + champs saisis à la main (imposés à l'agent)
 alter table public.listings add column if not exists gender text not null default '';
 alter table public.listings add column if not exists manual jsonb not null default '{}'::jsonb;
+
+-- v4 : certitude de l'agent champ par champ (champs « à vérifier » en orange)
+alter table public.listings add column if not exists ai_confidence jsonb not null default '{}'::jsonb;

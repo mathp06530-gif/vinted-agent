@@ -159,3 +159,10 @@ dialog { overflow-x: hidden; overscroll-behavior: contain; }
 .field label[data-lock="1"]::after { content: "🔒"; margin-left: auto; font-size: 12px; }
 .new-fields { margin-bottom: 4px; }
 .hint { margin: 4px 0 8px; }
+
+/* --- champs dont l'agent n'est pas sûr --- */
+.field.unsure input, .field.unsure select { border-color: #e08a00; box-shadow: 0 0 0 1px #e08a00; }
+.field.unsure label::after { content: "à vérifier"; margin-left: auto; font-size: 11px; font-weight: 700; color: #b86e00; background: #fff1d6; padding: 1px 7px; border-radius: 999px; }
+@media (prefers-color-scheme: dark) { .field.unsure label::after { color: #ffc35c; background: #3d2c0b; } }
+.unsure-hint { margin: 0 0 8px; padding: 8px 12px; border-radius: 9px; font-size: 13px; background: #fff1d6; color: #7a4a00; }
+@media (prefers-color-scheme: dark) { .unsure-hint { background: #3d2c0b; color: #ffd48a; } }

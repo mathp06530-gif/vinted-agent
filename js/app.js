@@ -1,6 +1,6 @@
-import * as store from "./store.js?v=13";
-import { generate, VISION_MODELS, TEXT_MODELS, MAX_IMAGES, LOCKABLE } from "./agent.js?v=13";
-import { toJpeg, makeSheets } from "./images.js?v=13";
+import * as store from "./store.js?v=15";
+import { generate, VISION_MODELS, TEXT_MODELS, MAX_IMAGES, LOCKABLE } from "./agent.js?v=15";
+import { toJpeg, makeSheets } from "./images.js?v=15";
 
 const $ = (s) => document.querySelector(s);
 const STATUS_LABEL = { brouillon: "À vérifier", prete: "Prête", publiee: "Publiée", vendue: "Vendue" };
@@ -159,7 +159,8 @@ async function runAgent(listing, blobs, extraHints, onStep) {
     .filter((i) => i.id !== listing.id && ["fausse", "authentique"].includes(i.authenticity))
     .slice(0, 15)
     .map(({ title, brand, authenticity, auth_reason }) => ({ title, brand, authenticity, auth_reason }));
-  const fields = await generate({ key: cfg.groq_api_key, cfg, listing, photosB64, extraHints, examples, onStep });
+  const corrections = (cfg.corrections || []).slice(-25);
+  const fields = await generate({ key: cfg.groq_api_key, cfg, listing, photosB64, extraHints, examples, corrections, onStep });
   return store.updateListing(listing.id, fields);
 }
 
@@ -347,15 +348,22 @@ $("#ed-add").addEventListener("change", (e) => guard(async () => {
 const edited = new Set();
 LOCKABLE.forEach((f) => {
   const el = $(`#f-${f}`);
-  el?.addEventListener("input", () => edited.add(f));
-  el?.addEventListener("change", () => edited.add(f));
+  const mark = () => { edited.add(f); el.closest(".field")?.classList.remove("unsure"); };
+  el?.addEventListener("input", mark);
+  el?.addEventListener("change", mark);
 });
 function renderLocks() {
-  const manual = current?.manual || {};
+  const manual = current?.manual || {}, conf = current?.ai_confidence || {};
   LOCKABLE.forEach((f) => {
-    const label = $(`#f-${f}`)?.closest(".field")?.querySelector("label");
+    const field = $(`#f-${f}`)?.closest(".field");
+    const label = field?.querySelector("label");
     if (label) label.dataset.lock = manual[f] ? "1" : "";
+    // l'agent n'est pas sûr de ce champ et tu ne l'as pas encore vérifié
+    field?.classList.toggle("unsure", !manual[f] && !edited.has(f) && conf[f] === "basse");
   });
+  const n = document.querySelectorAll("#editor .field.unsure").length;
+  $("#unsure-hint").hidden = !n;
+  $("#unsure-hint").textContent = `L'agent n'est pas sûr de ${n} champ${n > 1 ? "s" : ""} (en orange) : vérifie-le${n > 1 ? "s" : ""}.`;
 }
 
 function formData() {
@@ -372,8 +380,20 @@ function isDirty() {
   const d = formData();
   return edited.size > 0 || FIELDS.some((k) => String(d[k] ?? "") !== String(current[k] ?? ""));
 }
+const LEARN = ["brand", "model", "category", "gender", "size"];
+async function rememberCorrections(d) {
+  const before = current, manualBefore = before.manual || {};
+  const fresh = [...edited].filter((f) => LEARN.includes(f) && !manualBefore[f]
+    && before[f] && d[f] && String(before[f]).trim() !== String(d[f]).trim())
+    .map((f) => ({ champ: f, agent: String(before[f]), vendeur: String(d[f]), titre: before.title || "" }));
+  if (!fresh.length) return;
+  cfg.corrections = [...(cfg.corrections || []), ...fresh].slice(-40);
+  await store.saveSettings(cfg).catch(() => {});
+}
 async function save(quiet) {
-  current = await store.updateListing(current.id, formData());
+  const d = formData();
+  await rememberCorrections(d);
+  current = await store.updateListing(current.id, d);
   edited.clear();
   renderLocks();
   if (!quiet) toast("Enregistré");

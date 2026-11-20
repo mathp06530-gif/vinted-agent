@@ -1,7 +1,7 @@
 // Catégories proches de celles de Vinted (France), pour que l'agent choisisse un chemin précis.
 // Liste volontairement compacte : l'agent peut affiner le dernier niveau si besoin.
 const COMMUN = {
-  "Manteaux et vestes": ["Doudounes", "Parkas", "Vestes softshell", "Polaires", "Coupe-vent", "Vestes en jean", "Blousons aviateur", "Vestes en cuir", "Vestes sans manches", "Manteaux en laine", "Trenchs", "Vestes de sport"],
+  "Manteaux et vestes": ["Doudounes", "Parkas", "Vestes imperméables", "Vestes 3 en 1", "Vestes softshell", "Polaires", "Coupe-vent", "Vestes en jean", "Blousons aviateur", "Vestes en cuir", "Vestes sans manches", "Manteaux en laine", "Trenchs", "Vestes de sport"],
   "Sweats et pulls": ["Sweats à capuche", "Sweats zippés", "Sweats", "Pulls", "Gilets", "Pulls col roulé"],
   "Hauts et t-shirts": ["T-shirts", "Polos", "Chemises", "Débardeurs", "T-shirts manches longues"],
   "Pantalons": ["Jeans", "Pantalons chino", "Joggings", "Pantalons cargo", "Pantalons de costume"],
