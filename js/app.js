@@ -1,6 +1,6 @@
-import * as store from "./store.js?v=10";
-import { generate, VISION_MODELS, TEXT_MODELS, MAX_IMAGES, LOCKABLE } from "./agent.js?v=10";
-import { toJpeg, makeSheets } from "./images.js?v=10";
+import * as store from "./store.js?v=12";
+import { generate, VISION_MODELS, TEXT_MODELS, MAX_IMAGES, LOCKABLE } from "./agent.js?v=12";
+import { toJpeg, makeSheets } from "./images.js?v=12";
 
 const $ = (s) => document.querySelector(s);
 const STATUS_LABEL = { brouillon: "À vérifier", prete: "Prête", publiee: "Publiée", vendue: "Vendue" };
@@ -16,6 +16,18 @@ let tab = "brouillon";
 let newFiles = [];
 
 // ---------- petits outils ----------
+// Copie : presse-papiers moderne, sinon méthode classique (anciens téléphones, navigateurs intégrés)
+async function copyText(text) {
+  try { await navigator.clipboard.writeText(text); return true; } catch { /* méthode de secours */ }
+  const ta = document.createElement("textarea");
+  ta.value = text; ta.setAttribute("readonly", ""); ta.style.cssText = "position:fixed;top:0;left:0;opacity:0";
+  ([...document.querySelectorAll("dialog[open]")].pop() || document.body).appendChild(ta);
+  ta.select(); ta.setSelectionRange(0, text.length);
+  let ok = false;
+  try { ok = document.execCommand("copy"); } catch { ok = false; }
+  ta.remove();
+  return ok;
+}
 function toast(msg, ms = 3500) {
   const t = $("#toast");
   // les fenêtres ouvertes passent au-dessus de tout : on y place le message pour qu'il reste visible
@@ -406,8 +418,8 @@ $("#btn-regen").addEventListener("click", (e) => runAgentInEditor(e.currentTarge
 document.querySelectorAll(".copy").forEach((b) => b.addEventListener("click", async () => {
   const d = formData();
   const text = b.dataset.copy === "title" ? d.title : [d.description, d.hashtags].filter(Boolean).join("\n\n");
-  try { await navigator.clipboard.writeText(text); toast("Copié"); }
-  catch { toast("Copie impossible ici, sélectionne le texte à la main"); }
+  if (await copyText(text)) toast("Copié");
+  else toast("Copie impossible ici, sélectionne le texte à la main");
 }));
 
 // Partage des photos (téléphone : « Enregistrer les images » ou envoyer vers une appli)
