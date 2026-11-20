@@ -11,7 +11,7 @@
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png?v=2">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Vinted Agent">
-<link rel="stylesheet" href="style.css?v=20">
+<link rel="stylesheet" href="style.css?v=22">
 </head>
 <body>
 <header class="top">
@@ -19,8 +19,31 @@
     <img class="logo" src="icons/icon-192.png?v=2" alt="" width="36" height="36">
     <div><h1>Vinted Agent</h1><p class="sub" id="who">Tes annonces, préparées pour toi</p></div>
   </div>
-  <button class="ghost" id="btn-settings" hidden>Réglages</button>
+  <div class="row top-actions">
+    <button class="ghost" id="btn-brands" hidden>Marques</button>
+    <button class="ghost" id="btn-settings" hidden>Réglages</button>
+  </div>
 </header>
+
+<!-- Marques -->
+<dialog id="brands-dlg">
+  <form method="dialog" class="ed">
+    <div class="ed-head"><h2>Marques <small id="brands-count"></small></h2><button class="ghost" value="close" formnovalidate>Fermer</button></div>
+    <p class="hint">L'agent écrit les marques avec l'orthographe de cette liste. Si une marque n'y est pas, il la met en orange « à vérifier ». Ajoute ici celles qui manquent, avec si tu veux comment la reconnaître : l'agent s'en servira.</p>
+    <div class="brand-add">
+      <div class="field"><label>Marque</label><input id="b-name" placeholder="ex : Ralph Lauren" autocomplete="off"></div>
+      <div class="field"><label>Comment la reconnaître (facultatif)</label>
+        <input id="b-cues" placeholder="ex : petit joueur de polo brodé, étiquette bleu marine « Polo »" autocomplete="off"></div>
+      <div class="row end"><button type="button" class="primary" id="btn-brand-save">Ajouter / mettre à jour</button></div>
+    </div>
+    <div class="field"><input id="b-search" type="search" placeholder="Chercher une marque…" autocomplete="off"></div>
+    <div class="brand-filters">
+      <label><input type="checkbox" id="b-only-mine"> Seulement mes marques</label>
+    </div>
+    <ul class="brand-list" id="brand-list"></ul>
+  </form>
+</dialog>
+<datalist id="brand-options"></datalist>
 
 <!-- Écran : Supabase pas encore branché -->
 <main id="screen-setup" hidden>
@@ -126,7 +149,7 @@
           <option value=""></option>
           <option>Homme</option><option>Femme</option><option>Enfant</option><option>Unisexe</option>
         </select></div>
-      <div class="field"><label>Marque</label><input id="f-brand"></div>
+      <div class="field"><label>Marque</label><input id="f-brand" list="brand-options" autocomplete="off"></div>
       <div class="field"><label>Modèle</label><input id="f-model"></div>
       <div class="field"><label>Catégorie</label><input id="f-category"></div>
       <div class="field"><label>Taille</label><input id="f-size"></div>
@@ -205,6 +228,6 @@
 <div class="toast" id="toast"></div>
 <div class="busy" id="busy" hidden><div class="spin"></div><p id="busy-text">L'agent regarde tes photos…</p></div>
 
-<script type="module" src="js/app.js?v=20"></script>
+<script type="module" src="js/app.js?v=22"></script>
 </body>
 </html>

@@ -180,3 +180,27 @@ dialog { overflow-x: hidden; overscroll-behavior: contain; }
 .thumbs .thumb b { position: absolute; top: 2px; right: 2px; font-size: 14px; }
 .ph .tag-btn { position: absolute; top: 4px; right: 4px; font-size: 11px; padding: 1px 6px; border: none; border-radius: 6px; background: rgba(0,0,0,.6); color: #fff; }
 .ph .tag-btn.on { background: #e08a00; }
+
+/* --- onglet Marques --- */
+.top-actions { margin: 0; gap: 6px; }
+.brand-add { background: var(--accent-soft); border-radius: 10px; padding: 10px 12px 2px; margin-bottom: 12px; }
+.brand-add .row { margin: 0 0 10px; }
+.brand-filters { font-size: 13px; color: var(--muted); margin: -4px 0 8px; }
+.brand-filters input { width: auto; }
+.brand-list { list-style: none; margin: 0; padding: 0; max-height: 50vh; overflow-y: auto; border: 1px solid var(--line); border-radius: 10px; }
+.brand-list li { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--line); cursor: pointer; }
+.brand-list li:last-child { border-bottom: none; }
+.brand-list li:hover { background: var(--accent-soft); }
+.brand-list li small { display: block; color: var(--muted); font-size: 12px; }
+.brand-list .mine { font-size: 11px; font-weight: 700; color: var(--accent); background: var(--accent-soft); padding: 1px 7px; border-radius: 999px; }
+.brand-list .empty { color: var(--muted); cursor: default; }
+@media (max-width: 640px) { .brand-list { max-height: none; } }
+
+/* en-tête : passe à la ligne sur les petits écrans (2 boutons) */
+.top { flex-wrap: wrap; gap: 8px; }
+.top .brand { min-width: 0; flex: 1 1 180px; }
+.top .brand > div { min-width: 0; }
+.top .sub { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.top-actions { flex: 0 0 auto; margin-left: auto; }
+#brands-dlg h2 small { display: block; font-size: 12px; font-weight: 400; color: var(--muted); margin-top: 2px; }
+html, body { overflow-x: hidden; }

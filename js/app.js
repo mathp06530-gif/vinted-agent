@@ -1,6 +1,7 @@
-import * as store from "./store.js?v=20";
-import { generate, VISION_MODELS, TEXT_MODELS, MAX_IMAGES, LOCKABLE } from "./agent.js?v=20";
-import { toJpeg, makeSheets, blobToBase64 } from "./images.js?v=20";
+import * as store from "./store.js?v=22";
+import { generate, VISION_MODELS, TEXT_MODELS, MAX_IMAGES, LOCKABLE } from "./agent.js?v=22";
+import { toJpeg, makeSheets, blobToBase64 } from "./images.js?v=22";
+import { allBrands } from "./brands.js?v=22";
 
 const $ = (s) => document.querySelector(s);
 const STATUS_LABEL = { brouillon: "À vérifier", prete: "Prête", publiee: "Publiée", vendue: "Vendue" };
@@ -46,11 +47,13 @@ async function guard(fn) { try { return await fn(); } catch (e) { toast(e.messag
 async function start() {
   if (!store.configured) return show("setup");
   const user = await store.currentUser();
-  if (!user) { $("#btn-settings").hidden = true; $("#who").textContent = "Tes annonces, préparées pour toi"; return show("login"); }
+  if (!user) { $("#btn-settings").hidden = true; $("#btn-brands").hidden = true; $("#who").textContent = "Tes annonces, préparées pour toi"; return show("login"); }
   $("#who").textContent = user.email;
   $("#btn-settings").hidden = false;
+  $("#btn-brands").hidden = false;
   show("app");
   cfg = { ...DEFAULT_SETTINGS, ...(await guard(store.loadSettings)) };
+  fillBrandOptions();
   await refresh();
   if (!cfg.groq_api_key) toast("Commence par mettre ta clé Groq (gratuite) dans Réglages", 7000);
 }
@@ -497,6 +500,61 @@ $("#btn-share").addEventListener("click", () => guard(async () => {
     setTimeout(() => URL.revokeObjectURL(a.href), 5000);
   });
   toast("Photos téléchargées");
+}));
+
+// ---------- marques ----------
+function fillBrandOptions() {
+  $("#brand-options").innerHTML = allBrands(cfg.brands || []).map((b) => `<option value="${esc(b.name)}">`).join("");
+}
+function renderBrands() {
+  const q = $("#b-search").value.trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  const onlyMine = $("#b-only-mine").checked;
+  const list = allBrands(cfg.brands || []);
+  const shown = list.filter((b) => (!onlyMine || b.custom)
+    && (!q || b.name.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").includes(q)));
+  const mine = list.filter((b) => b.custom).length;
+  $("#brands-count").textContent = `${list.length} marques, dont ${mine} à toi`;
+  $("#brand-list").innerHTML = shown.length ? shown.map((b) => `
+    <li data-name="${esc(b.name)}">
+      <div><b>${esc(b.name)}</b>${b.custom ? ' <span class="mine">à toi</span>' : ""}
+        ${b.cues ? `<small>${esc(b.cues)}</small>` : ""}</div>
+      ${b.custom ? `<button type="button" class="ghost small" data-del="${esc(b.name)}" title="Retirer">✕</button>` : ""}
+    </li>`).join("")
+    : `<li class="empty">Aucune marque trouvée. Ajoute-la au-dessus.</li>`;
+}
+async function saveBrands(brands, msg) {
+  const next = { ...cfg, brands };
+  await store.saveSettings(next);
+  cfg = next; fillBrandOptions(); renderBrands(); toast(msg);
+}
+$("#btn-brands").addEventListener("click", () => {
+  $("#b-search").value = ""; $("#b-name").value = ""; $("#b-cues").value = "";
+  renderBrands(); $("#brands-dlg").showModal();
+});
+$("#b-search").addEventListener("input", renderBrands);
+$("#b-only-mine").addEventListener("change", renderBrands);
+// toucher une marque : la reprendre dans le formulaire pour ajouter ou corriger ses repères
+$("#brand-list").addEventListener("click", (e) => guard(async () => {
+  const del = e.target.closest("[data-del]");
+  if (del) {
+    const name = del.dataset.del;
+    if (!confirm(`Retirer « ${name} » de tes marques ?`)) return;
+    return saveBrands((cfg.brands || []).filter((b) => b.name !== name), "Marque retirée");
+  }
+  const li = e.target.closest("li[data-name]"); if (!li) return;
+  const b = allBrands(cfg.brands || []).find((x) => x.name === li.dataset.name);
+  $("#b-name").value = b.name; $("#b-cues").value = b.cues || "";
+  $("#b-cues").focus();
+}));
+$("#btn-brand-save").addEventListener("click", () => guard(async () => {
+  const name = $("#b-name").value.trim().replace(/\s+/g, " ");
+  const cues = $("#b-cues").value.trim();
+  if (!name) return toast("Écris le nom de la marque.");
+  const key = (x) => x.toLowerCase().normalize("NFD").replace(/[^a-z0-9]/g, "");
+  const brands = (cfg.brands || []).filter((b) => key(b.name) !== key(name));
+  brands.push({ name, cues });
+  await saveBrands(brands, `« ${name} » enregistrée${cues ? " avec ses repères" : ""}`);
+  $("#b-name").value = ""; $("#b-cues").value = ""; $("#b-search").value = name; renderBrands();
 }));
 
 // ---------- réglages ----------

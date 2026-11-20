@@ -1,8 +1,9 @@
 // L'agent : Qwen (vision) regarde les photos, GPT-OSS 120B écrit l'annonce. Tout passe par Groq.
-import { SYSTEM, VISION_PROMPT } from "./prompts.js?v=20";
-import { guideFor } from "./legit.js?v=20";
-import { categoriesFor } from "./categories.js?v=20";
-import { modelsFor } from "./models.js?v=20";
+import { SYSTEM, VISION_PROMPT } from "./prompts.js?v=22";
+import { guideFor } from "./legit.js?v=22";
+import { categoriesFor } from "./categories.js?v=22";
+import { modelsFor } from "./models.js?v=22";
+import { allBrands, matchBrand } from "./brands.js?v=22";
 
 const GROQ_URL = "https://api.groq.com/openai/v1/chat/completions";
 export const VISION_MODELS = { "qwen/qwen3.8-27b": "Qwen 3.8 27B (vision)" };
@@ -183,6 +184,12 @@ export async function generate({ key, cfg, listing, photosB64, labelCount = 0, e
   text += `\nCatégories Vinted disponibles :\n${categoriesFor(manual.gender)}\n`;
   const brand = manual.brand || notes[0]?.marque || "";
   text += `\n${modelsFor(brand)}\n`;
+  // Marques ajoutées par le vendeur dans l'onglet « Marques », avec ses repères
+  const myBrands = (cfg.brands || []).filter((b) => b?.name && b.cues);
+  if (myBrands.length) {
+    text += "\nMarques ajoutées par le vendeur et comment il les reconnaît (fais-lui confiance) :\n"
+      + myBrands.slice(0, 40).map((b) => `- ${b.name} : ${b.cues}`).join("\n") + "\n";
+  }
   if (corrections.length) {
     text += "\nErreurs que tu as déjà faites et que le vendeur a corrigées (apprends-en, ne les refais pas) :\n"
       + corrections.map((c) => `- ${c.titre ? `« ${c.titre} » : ` : ""}${LABELS[c.champ] || c.champ} « ${c.agent || "(vide)"} » corrigé en « ${c.vendeur} »`).join("\n") + "\n";
@@ -322,6 +329,19 @@ export async function generate({ key, cfg, listing, photosB64, labelCount = 0, e
       if (unsureSize && v2.taille_lue && !a.taille) {
         a.taille = String(v2.taille_lue).trim(); a.confiance_taille = "moyenne";
       }
+    }
+  }
+  // --- Liste de marques : orthographe exacte, et alerte si la marque n'y est pas ---
+  if (a.marque && !manual.brand) {
+    const m = matchBrand(a.marque, allBrands(cfg.brands || []));
+    if (m.name !== a.marque) {
+      const re = new RegExp(a.marque.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi");
+      a.titre = a.titre.replace(re, m.name); a.description = a.description.replace(re, m.name);
+      a.marque = m.name;
+    }
+    if (!m.known) {
+      a.confiance_marque = "basse";
+      a.notes_vendeur = `« ${a.marque} » n'est pas dans ta liste de marques : vérifie-la, et ajoute-la dans l'onglet Marques si elle existe vraiment. ${a.notes_vendeur || ""}`.trim();
     }
   }
   // Filet de sécurité : jamais de « taille non indiquée » dans le texte public
