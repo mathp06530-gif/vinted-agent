@@ -154,3 +154,8 @@ dialog { overflow-x: hidden; overscroll-behavior: contain; }
 .auth-badge.warn { color: var(--st-brouillon); background: var(--st-brouillon-bg); }
 .auth-badge.bad { color: #fff; background: var(--danger); }
 .auth-badge.ok { color: var(--st-vendue); background: var(--st-vendue-bg); }
+
+/* --- v10 : champs imposés, formulaire de création --- */
+.field label[data-lock="1"]::after { content: "🔒"; margin-left: auto; font-size: 12px; }
+.new-fields { margin-bottom: 4px; }
+.hint { margin: 4px 0 8px; }

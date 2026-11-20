@@ -1,10 +1,10 @@
-import * as store from "./store.js?v=9";
-import { generate, VISION_MODELS, TEXT_MODELS, MAX_IMAGES } from "./agent.js?v=9";
-import { toJpeg, makeSheets } from "./images.js?v=9";
+import * as store from "./store.js?v=10";
+import { generate, VISION_MODELS, TEXT_MODELS, MAX_IMAGES, LOCKABLE } from "./agent.js?v=10";
+import { toJpeg, makeSheets } from "./images.js?v=10";
 
 const $ = (s) => document.querySelector(s);
 const STATUS_LABEL = { brouillon: "À vérifier", prete: "Prête", publiee: "Publiée", vendue: "Vendue" };
-const FIELDS = ["title", "description", "hashtags", "brand", "model", "category", "size", "condition", "color", "material", "price", "hints"];
+const FIELDS = ["title", "description", "hashtags", "gender", "brand", "model", "category", "size", "condition", "color", "material", "price", "hints"];
 const DEFAULT_SETTINGS = {
   groq_api_key: "", groq_vision_model: Object.keys(VISION_MODELS)[0], groq_text_model: "openai/gpt-oss-120b",
   tutoiement: true, emojis: "rare", hashtags: true, signature: "", style: "naturel", marge_prix: "normal",
@@ -17,7 +17,11 @@ let newFiles = [];
 
 // ---------- petits outils ----------
 function toast(msg, ms = 3500) {
-  const t = $("#toast"); t.textContent = msg; t.classList.add("on");
+  const t = $("#toast");
+  // les fenêtres ouvertes passent au-dessus de tout : on y place le message pour qu'il reste visible
+  const host = [...document.querySelectorAll("dialog[open]")].pop() || document.body;
+  if (t.parentElement !== host) host.appendChild(t);
+  t.textContent = msg; t.classList.add("on");
   clearTimeout(toast._t); toast._t = setTimeout(() => t.classList.remove("on"), ms);
 }
 function busy(on, text) { $("#busy").hidden = !on; if (text) $("#busy-text").textContent = text; }
@@ -110,6 +114,7 @@ document.addEventListener("visibilitychange", () => { if (!document.hidden && !$
 // ---------- nouvelle annonce ----------
 const drop = $("#drop");
 function setNewFiles(files) {
+  $("#new-thumbs").querySelectorAll("img").forEach((i) => URL.revokeObjectURL(i.src));
   newFiles = [...newFiles, ...[...files].filter((f) => f.type.startsWith("image/") || /\.hei[cf]$/i.test(f.name))];
   $("#new-thumbs").innerHTML = newFiles.map((f) => `<img src="${URL.createObjectURL(f)}" alt="">`).join("");
   $("#btn-create").disabled = !newFiles.length;
@@ -121,13 +126,16 @@ $("#new-photos").addEventListener("change", (e) => { setNewFiles(e.target.files)
 drop.addEventListener("drop", (e) => setNewFiles(e.dataTransfer.files));
 
 async function uploadFiles(files, onProgress) {
-  const paths = [], blobs = [];
+  const paths = [], blobs = [], skipped = [];
   for (const [i, f] of [...files].entries()) {
     onProgress?.(`Envoi des photos ${i + 1}/${files.length}…`);
-    const jpeg = await toJpeg(f);
+    let jpeg;
+    try { jpeg = await toJpeg(f); } catch { skipped.push(f.name); continue; }
     paths.push(await store.uploadPhoto(jpeg));
     blobs.push(jpeg);
   }
+  if (skipped.length) toast(`${skipped.length} photo(s) illisible(s) ignorée(s) (format non supporté ici) : ${skipped.join(", ")}`, 7000);
+  if (!paths.length) throw new Error("Aucune photo n'a pu être lue. Essaie en JPEG ou PNG.");
   return { paths, blobs };
 }
 
@@ -144,13 +152,24 @@ async function runAgent(listing, blobs, extraHints, onStep) {
 }
 
 $("#btn-create").addEventListener("click", async () => {
-  const files = newFiles, hints = $("#new-hints").value;
+  const btn = $("#btn-create");
+  if (btn.dataset.busy) return; // pas de double création
+  btn.dataset.busy = "1"; btn.disabled = true;
+  const files = newFiles, hints = $("#new-hints").value.trim();
+  const gender = $("#new-gender").value, size = $("#new-size").value.trim();
+  const manual = Object.fromEntries(Object.entries({ gender, size }).filter(([, v]) => v));
   busy(true, "Préparation des photos…");
   let item;
   try {
     const { paths, blobs } = await uploadFiles(files, (t) => busy(true, t));
-    item = await store.createListing({ hints, photos: paths });
-    newFiles = []; setNewFiles([]); $("#new-hints").value = "";
+    try {
+      item = await store.createListing({ hints, photos: paths, gender, size, manual });
+    } catch (e) {
+      paths.forEach((p) => store.removePhoto(p)); // pas de photos orphelines
+      throw e;
+    }
+    newFiles = []; setNewFiles([]);
+    $("#new-hints").value = ""; $("#new-gender").value = ""; $("#new-size").value = "";
     try {
       item = await runAgent(item, blobs, "", (t) => busy(true, t));
       agentErrors.delete(item.id);
@@ -159,6 +178,8 @@ $("#btn-create").addEventListener("click", async () => {
     tab = "brouillon"; await refresh(); busy(false); openEditor(item.id);
   } catch (e) { toast(e.message, 7000); }
   busy(false);
+  delete btn.dataset.busy;
+  btn.disabled = !newFiles.length;
 });
 
 // ---------- éditeur ----------
@@ -207,6 +228,8 @@ $("#btn-agent-settings").addEventListener("click", () => $("#btn-settings").clic
 async function openEditor(id) {
   current = await guard(() => store.getListing(id));
   if (!current) return;
+  edited.clear();
+  $("#regen-hint").value = "";
   await fillEditor();
   if (!$("#editor").open) $("#editor").showModal();
 }
@@ -224,7 +247,7 @@ async function fillEditor() {
   await renderPhotos();
 
   const [nl, nf, al, af, hint] = {
-    brouillon: ["Valider l'annonce", () => setStatus("prete"), "", null,
+    brouillon: ["Valider l'annonce", validate, "", null,
       "Relis, corrige si besoin, puis valide : elle passe dans « Prêtes à publier »."],
     prete: ["Marquer publiée", markPublished, "Remettre à vérifier", () => setStatus("brouillon"), ""],
     publiee: ["Marquer vendue", () => setStatus("vendue"), "Remettre en « prête »", () => setStatus("prete"),
@@ -240,6 +263,7 @@ async function fillEditor() {
   $("#publish-help").hidden = fake || c.status !== "prete";
   if (fake) $("#ed-hint").textContent = "Contrefaçon : ne la publie pas sur Vinted (interdit, risque de blocage du compte).";
   renderAuthBox();
+  renderLocks();
 }
 
 // ---------- authenticité ----------
@@ -307,23 +331,62 @@ $("#ed-add").addEventListener("change", (e) => guard(async () => {
   await renderPhotos(); refresh(); toast("Photos ajoutées");
 }));
 
+// Champs modifiés à la main depuis l'ouverture de la fiche : ils deviennent imposés à l'agent
+const edited = new Set();
+LOCKABLE.forEach((f) => {
+  const el = $(`#f-${f}`);
+  el?.addEventListener("input", () => edited.add(f));
+  el?.addEventListener("change", () => edited.add(f));
+});
+function renderLocks() {
+  const manual = current?.manual || {};
+  LOCKABLE.forEach((f) => {
+    const label = $(`#f-${f}`)?.closest(".field")?.querySelector("label");
+    if (label) label.dataset.lock = manual[f] ? "1" : "";
+  });
+}
+
 function formData() {
   const d = {};
-  FIELDS.forEach((f) => { const el = $(`#f-${f}`); if (el) d[f] = el.value; });
-  d.price = d.price === "" ? null : Number(d.price);
+  FIELDS.forEach((f) => { const el = $(`#f-${f}`); if (el) d[f] = el.value.trim(); });
+  d.price = d.price === "" ? null : Math.round(Number(d.price));
+  const manual = { ...(current?.manual || {}) };
+  edited.forEach((f) => { if (d[f] === "" || d[f] == null) delete manual[f]; else manual[f] = d[f]; });
+  d.manual = manual;
   return d;
+}
+function isDirty() {
+  if (!current) return false;
+  const d = formData();
+  return edited.size > 0 || FIELDS.some((k) => String(d[k] ?? "") !== String(current[k] ?? ""));
 }
 async function save(quiet) {
   current = await store.updateListing(current.id, formData());
+  edited.clear();
+  renderLocks();
   if (!quiet) toast("Enregistré");
   refresh();
 }
+// Enregistrement automatique quand on ferme la fiche sans avoir cliqué sur « Enregistrer »
+$("#editor").addEventListener("close", () => {
+  if (isDirty()) guard(async () => { await save(true); toast("Modifications enregistrées"); });
+});
 const setStatus = (status, extra = {}) => guard(async () => {
   await save(true);
   current = await store.updateListing(current.id, { status, ...extra });
   await fillEditor(); refresh();
   toast(`Annonce « ${STATUS_LABEL[status]} »`);
 });
+function validate() {
+  const d = formData(), missing = [];
+  if (!d.title) missing.push("le titre");
+  if (!d.description) missing.push("la description");
+  if (!d.price) missing.push("le prix");
+  if (!d.size) missing.push("la taille");
+  if (!current.photos.length) missing.push("au moins une photo");
+  if (missing.length) return toast(`Il manque ${missing.join(", ")} avant de valider.`, 6000);
+  setStatus("prete");
+}
 async function markPublished() {
   const url = prompt("Lien de l'annonce Vinted (facultatif) :", current.vinted_url || "");
   if (url === null) return;
@@ -334,6 +397,7 @@ $("#btn-save").addEventListener("click", () => guard(() => save()));
 $("#btn-delete").addEventListener("click", () => guard(async () => {
   if (!confirm("Supprimer définitivement cette annonce et ses photos ?")) return;
   await store.deleteListing(current);
+  current = null; edited.clear(); // rien à enregistrer à la fermeture
   $("#editor").close(); refresh(); toast("Annonce supprimée");
 }));
 

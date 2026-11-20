@@ -48,3 +48,7 @@ create policy "mes photos" on storage.objects for all to authenticated
 -- v2 : authenticité (onglet « Douteuses » + verdicts qui servent d'exemples à l'agent)
 alter table public.listings add column if not exists authenticity text not null default '';
 alter table public.listings add column if not exists auth_reason text not null default '';
+
+-- v3 : genre + champs saisis à la main (imposés à l'agent)
+alter table public.listings add column if not exists gender text not null default '';
+alter table public.listings add column if not exists manual jsonb not null default '{}'::jsonb;

@@ -1,6 +1,7 @@
 // L'agent : Qwen (vision) regarde les photos, GPT-OSS 120B écrit l'annonce. Tout passe par Groq.
-import { SYSTEM, VISION_PROMPT } from "./prompts.js?v=9";
-import { guideFor } from "./legit.js?v=9";
+import { SYSTEM, VISION_PROMPT } from "./prompts.js?v=10";
+import { guideFor } from "./legit.js?v=10";
+import { categoriesFor } from "./categories.js?v=10";
 
 const GROQ_URL = "https://api.groq.com/openai/v1/chat/completions";
 export const VISION_MODELS = { "qwen/qwen3.8-27b": "Qwen 3.8 27B (vision)" };
@@ -9,10 +10,13 @@ export const TEXT_MODELS = {
   "openai/gpt-oss-20b": "GPT-OSS 20B (plus rapide)",
 };
 export const ETATS = ["Neuf avec étiquette", "Neuf sans étiquette", "Très bon état", "Bon état", "Satisfaisant"];
+export const GENRES = ["Homme", "Femme", "Enfant", "Unisexe"];
+// Champs que le vendeur peut imposer à l'agent en les saisissant à la main
+export const LOCKABLE = ["gender", "size", "brand", "model", "category", "condition", "color", "material", "price"];
 // Limite gratuite Groq : ~7000 tokens/minute pour le modèle vision, ~2000 par image.
 // On envoie donc au plus 3 images (les photos en trop sont regroupées en planches avant).
 export const MAX_IMAGES = 3;
-const OBS_KEYS = '{"type_article":"","marque":"","modele_probable":"","textes_lus":[],"taille_lue":"",'
+const OBS_KEYS = '{"type_article":"","coupe":"","marque":"","modele_probable":"","textes_lus":[],"taille_lue":"","indices_genre":"",'
   + '"couleurs":"","matiere_lue":"","pays_fabrication":"","code_produit":"","etat_observe":"","defauts":[],'
   + '"details":[],"doutes":"","authenticite":"ok|douteux|impossible_a_dire","signaux_authenticite":[],"photo_a_ajouter":""}';
 
@@ -27,6 +31,7 @@ const strict = (name, props) => ({
 });
 const ANNONCE_FORMAT = strict("annonce", {
   titre: S, description: S, marque: S, modele: S, categorie: S, taille: S,
+  genre: { type: "string", enum: GENRES },
   etat: { type: "string", enum: ETATS }, couleur: S, matiere: S,
   prix: { type: "integer" }, prix_min: { type: "integer" }, prix_max: { type: "integer" },
   hashtags: LS, notes_vendeur: S,
@@ -121,15 +126,21 @@ export async function generate({ key, cfg, listing, photosB64, extraHints = "", 
 
   // 2. Le rédacteur écrit l'annonce
   onStep?.("L'agent rédige l'annonce…");
-  const already = Object.fromEntries(
-    ["brand", "model", "size", "condition", "price"].filter((k) => listing[k]).map((k) => [k, listing[k]]));
-  let text = "Tu n'as pas les photos sous les yeux : un assistant les a regardées pour toi et a noté ce qu'il voit "
+  // Champs imposés par le vendeur : saisis à la création (genre, taille) ou modifiés à la main dans la fiche
+  const manual = Object.fromEntries(Object.entries(listing.manual || {}).filter(([, v]) => v !== "" && v != null));
+  const LABELS = { gender: "genre", size: "taille", brand: "marque", model: "modèle", category: "catégorie",
+    condition: "état", color: "couleur", material: "matière", price: "prix" };
+  let text ="Tu n'as pas les photos sous les yeux : un assistant les a regardées pour toi et a noté ce qu'il voit "
     + "(une fiche par paquet de photos). Fie-toi à ces notes, croise-les, et quand les fiches se contredisent, "
     + "prends la plus précise ou signale le doute dans notes_vendeur.\n\nNotes sur les photos :\n"
     + JSON.stringify(notes, null, 1) + "\n\nPrépare l'annonce Vinted pour cet article.\n\n"
     + `Infos du vendeur : ${hints || "(aucune, débrouille-toi avec les photos)"}\n`;
-  if (Object.keys(already).length) text += `Champs déjà renseignés par le vendeur (à respecter) : ${JSON.stringify(already)}\n`;
-  const brand = listing.brand || notes[0]?.marque || "";
+  if (Object.keys(manual).length) {
+    text += "Infos données par le vendeur lui-même (elles font foi, reprends-les telles quelles) :\n"
+      + Object.entries(manual).map(([k, v]) => `- ${LABELS[k] || k} : ${v}`).join("\n") + "\n";
+  }
+  text += `\nCatégories Vinted disponibles :\n${categoriesFor(manual.gender)}\n`;
+  const brand = manual.brand || notes[0]?.marque || "";
   text += `\nGuide anti-contrefaçon (signaux à croiser avec les notes) :\n${guideFor(brand)}\n`;
   if (examples.length) {
     text += "\nPièces déjà vérifiées par le vendeur lui-même (apprends de ses verdicts, ils font foi) :\n"
@@ -165,11 +176,14 @@ export async function generate({ key, cfg, listing, photosB64, extraHints = "", 
     brand: (a.marque || "").trim(),
     model: (a.modele || "").trim(),
     category: (a.categorie || "").trim(),
-    size: listing.size || (a.taille || "").trim(),
+    gender: GENRES.includes(a.genre) ? a.genre : "",
+    size: (a.taille || "").trim(),
     condition: ETATS.includes(a.etat) ? a.etat : "Bon état",
     color: (a.couleur || "").trim(),
     material: (a.matiere || "").trim(),
-    price: listing.price || a.prix,
+    price: a.prix,
+    // ce que le vendeur a saisi à la main n'est jamais écrasé
+    ...manual,
     price_min: a.prix_min,
     price_max: a.prix_max,
     hashtags: cfg.hashtags === false ? "" : tags,
