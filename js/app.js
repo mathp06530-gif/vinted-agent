@@ -1,6 +1,6 @@
-import * as store from "./store.js?v=15";
-import { generate, VISION_MODELS, TEXT_MODELS, MAX_IMAGES, LOCKABLE } from "./agent.js?v=15";
-import { toJpeg, makeSheets } from "./images.js?v=15";
+import * as store from "./store.js?v=18";
+import { generate, VISION_MODELS, TEXT_MODELS, MAX_IMAGES, LOCKABLE } from "./agent.js?v=18";
+import { toJpeg, makeSheets, blobToBase64 } from "./images.js?v=18";
 
 const $ = (s) => document.querySelector(s);
 const STATUS_LABEL = { brouillon: "À vérifier", prete: "Prête", publiee: "Publiée", vendue: "Vendue" };
@@ -128,39 +128,62 @@ const drop = $("#drop");
 function setNewFiles(files) {
   $("#new-thumbs").querySelectorAll("img").forEach((i) => URL.revokeObjectURL(i.src));
   newFiles = [...newFiles, ...[...files].filter((f) => f.type.startsWith("image/") || /\.hei[cf]$/i.test(f.name))];
-  $("#new-thumbs").innerHTML = newFiles.map((f) => `<img src="${URL.createObjectURL(f)}" alt="">`).join("");
+  newLabels = new Set([...newLabels].filter((i) => i < newFiles.length));
+  $("#new-thumbs").innerHTML = newFiles.map((f, i) => `<span class="thumb ${newLabels.has(i) ? "on" : ""}" data-i="${i}">
+    <img src="${URL.createObjectURL(f)}" alt="">${newLabels.has(i) ? "<b>🏷️</b>" : ""}</span>`).join("");
+  $("#new-label-hint").hidden = !newFiles.length;
   $("#btn-create").disabled = !newFiles.length;
   $("#btn-create").textContent = newFiles.length ? `Créer l'annonce avec l'agent (${newFiles.length} photo${newFiles.length > 1 ? "s" : ""})` : "Créer l'annonce avec l'agent";
 }
+let newLabels = new Set();
+// toucher une vignette = la marquer comme photo d'étiquette (sans rouvrir la galerie)
+$("#new-thumbs").addEventListener("click", (e) => {
+  const t = e.target.closest(".thumb"); if (!t) return;
+  e.preventDefault(); e.stopPropagation();
+  const i = +t.dataset.i;
+  if (newLabels.has(i)) newLabels.delete(i);
+  else if (newLabels.size >= 2) return toast("2 photos d'étiquette maximum.");
+  else newLabels.add(i);
+  setNewFiles([]);
+});
 $("#new-photos").addEventListener("change", (e) => { setNewFiles(e.target.files); e.target.value = ""; });
 ["dragenter", "dragover"].forEach((ev) => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.add("over"); }));
 ["dragleave", "drop"].forEach((ev) => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.remove("over"); }));
 drop.addEventListener("drop", (e) => setNewFiles(e.dataTransfer.files));
 
 async function uploadFiles(files, onProgress) {
-  const paths = [], blobs = [], skipped = [];
+  const paths = [], blobs = [], skipped = [], kept = [];
   for (const [i, f] of [...files].entries()) {
     onProgress?.(`Envoi des photos ${i + 1}/${files.length}…`);
     let jpeg;
     try { jpeg = await toJpeg(f); } catch { skipped.push(f.name); continue; }
     paths.push(await store.uploadPhoto(jpeg));
     blobs.push(jpeg);
+    kept.push(i);
   }
   if (skipped.length) toast(`${skipped.length} photo(s) illisible(s) ignorée(s) (format non supporté ici) : ${skipped.join(", ")}`, 7000);
   if (!paths.length) throw new Error("Aucune photo n'a pu être lue. Essaie en JPEG ou PNG.");
-  return { paths, blobs };
+  return { paths, blobs, kept };
 }
 
 async function runAgent(listing, blobs, extraHints, onStep) {
   if (!blobs) blobs = await Promise.all(listing.photos.map(store.downloadPhoto));
-  const photosB64 = await makeSheets(blobs, MAX_IMAGES);
+  // photos marquées 🏷️ (étiquettes) : envoyées seules et en grand (2 max), le reste regroupé
+  const labels = listing.manual?._labels || [];
+  const labelIdx = listing.photos.map((p, i) => (labels.includes(p) ? i : -1)).filter((i) => i >= 0).slice(0, 2);
+  const others = blobs.filter((_, i) => !labelIdx.includes(i));
+  const photosB64 = [
+    ...(await Promise.all(labelIdx.map((i) => blobToBase64(blobs[i])))),
+    ...(others.length ? await makeSheets(others, MAX_IMAGES - labelIdx.length) : []),
+  ];
+  const labelCount = labelIdx.length;
   // Tes verdicts (vraie / fausse) servent d'exemples à l'agent : les 15 plus récents
   const examples = items
     .filter((i) => i.id !== listing.id && ["fausse", "authentique"].includes(i.authenticity))
     .slice(0, 15)
     .map(({ title, brand, authenticity, auth_reason }) => ({ title, brand, authenticity, auth_reason }));
   const corrections = (cfg.corrections || []).slice(-25);
-  const fields = await generate({ key: cfg.groq_api_key, cfg, listing, photosB64, extraHints, examples, corrections, onStep });
+  const fields = await generate({ key: cfg.groq_api_key, cfg, listing, photosB64, labelCount, extraHints, examples, corrections, onStep });
   return store.updateListing(listing.id, fields);
 }
 
@@ -171,17 +194,20 @@ $("#btn-create").addEventListener("click", async () => {
   const files = newFiles, hints = $("#new-hints").value.trim();
   const gender = $("#new-gender").value, size = $("#new-size").value.trim();
   const manual = Object.fromEntries(Object.entries({ gender, size }).filter(([, v]) => v));
+  const labelIdx = [...newLabels];
   busy(true, "Préparation des photos…");
   let item;
   try {
-    const { paths, blobs } = await uploadFiles(files, (t) => busy(true, t));
+    const { paths, blobs, kept } = await uploadFiles(files, (t) => busy(true, t));
+    const labelPaths = labelIdx.map((i) => kept.indexOf(i)).filter((k) => k >= 0).map((k) => paths[k]);
+    if (labelPaths.length) manual._labels = labelPaths;
     try {
       item = await store.createListing({ hints, photos: paths, gender, size, manual });
     } catch (e) {
       paths.forEach((p) => store.removePhoto(p)); // pas de photos orphelines
       throw e;
     }
-    newFiles = []; setNewFiles([]);
+    newFiles = []; newLabels = new Set(); setNewFiles([]);
     $("#new-hints").value = ""; $("#new-gender").value = ""; $("#new-size").value = "";
     try {
       item = await runAgent(item, blobs, "", (t) => busy(true, t));
@@ -309,10 +335,13 @@ $("#btn-auth-fake").addEventListener("click", () => setVerdict("fausse"));
 
 async function renderPhotos() {
   const ph = current.photos;
+  const labels = current.manual?._labels || [];
   const urls = await guard(() => store.photoUrls(ph)) || {};
   $("#ed-photos").innerHTML = ph.map((p, i) => `
     <div class="ph">
       ${i === 0 ? '<span class="cover">couverture</span>' : ""}
+      <button type="button" class="tag-btn ${labels.includes(p) ? "on" : ""}" data-label="${i}"
+        title="Marquer comme photo d'étiquette">🏷️${labels.includes(p) ? " étiquette" : ""}</button>
       <img src="${urls[p] || ""}" alt="">
       <div class="ctl">
         <button type="button" data-move="${i}" data-dir="-1" ${i === 0 ? "disabled" : ""}>←</button>
@@ -324,7 +353,17 @@ async function renderPhotos() {
 $("#ed-photos").addEventListener("click", (e) => guard(async () => {
   const b = e.target.closest("button"); if (!b) return;
   const photos = [...current.photos];
-  if (b.dataset.del !== undefined) {
+  if (b.dataset.label !== undefined) {
+    const path = photos[+b.dataset.label];
+    const labels = new Set(current.manual?._labels || []);
+    if (labels.has(path)) labels.delete(path);
+    else {
+      if ([...labels].filter((l) => photos.includes(l)).length >= 2) return toast("2 photos d'étiquette maximum.");
+      labels.add(path);
+    }
+    current = await store.updateListing(current.id, { manual: { ...(current.manual || {}), _labels: [...labels] } });
+    toast(labels.has(path) ? "Photo d'étiquette : l'agent la lira en grand. Relance « Réécrire »." : "Photo normale");
+  } else if (b.dataset.del !== undefined) {
     if (!confirm("Retirer cette photo ?")) return;
     const [removed] = photos.splice(+b.dataset.del, 1);
     current = await store.updateListing(current.id, { photos });

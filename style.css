@@ -166,3 +166,17 @@ dialog { overflow-x: hidden; overscroll-behavior: contain; }
 @media (prefers-color-scheme: dark) { .field.unsure label::after { color: #ffc35c; background: #3d2c0b; } }
 .unsure-hint { margin: 0 0 8px; padding: 8px 12px; border-radius: 9px; font-size: 13px; background: #fff1d6; color: #7a4a00; }
 @media (prefers-color-scheme: dark) { .unsure-hint { background: #3d2c0b; color: #ffd48a; } }
+
+/* --- photos d'étiquette 🏷️ --- */
+.thumbs .thumb { position: relative; display: inline-block; cursor: pointer; border-radius: 8px; }
+.thumbs .thumb.on img { outline: 3px solid #e08a00; outline-offset: -3px; }
+.thumbs .thumb b { position: absolute; top: 2px; right: 2px; font-size: 14px; }
+.ph .tag-btn { position: absolute; top: 4px; right: 4px; font-size: 11px; padding: 1px 6px; border: none; border-radius: 6px; background: rgba(0,0,0,.6); color: #fff; }
+.ph .tag-btn.on { background: #e08a00; }
+
+/* --- photos d'étiquette --- */
+.thumbs .thumb { position: relative; display: inline-block; cursor: pointer; border-radius: 8px; }
+.thumbs .thumb.on img { outline: 3px solid #e08a00; outline-offset: -3px; }
+.thumbs .thumb b { position: absolute; top: 2px; right: 2px; font-size: 14px; }
+.ph .tag-btn { position: absolute; top: 4px; right: 4px; font-size: 11px; padding: 1px 6px; border: none; border-radius: 6px; background: rgba(0,0,0,.6); color: #fff; }
+.ph .tag-btn.on { background: #e08a00; }

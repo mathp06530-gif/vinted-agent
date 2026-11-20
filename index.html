@@ -11,7 +11,7 @@
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png?v=2">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Vinted Agent">
-<link rel="stylesheet" href="style.css?v=15">
+<link rel="stylesheet" href="style.css?v=18">
 </head>
 <body>
 <header class="top">
@@ -55,6 +55,7 @@
       <div><strong>Ajoute tes photos</strong><span>Touche ici pour choisir dans ta galerie ou prendre une photo. Une photo de l'étiquette = annonce plus précise.</span></div>
       <div class="thumbs" id="new-thumbs"></div>
     </label>
+    <p class="hint" id="new-label-hint" hidden>Astuce : touche la photo de l'étiquette pour la marquer 🏷️ : l'agent la lira en grand (marque, taille, code produit).</p>
     <div class="cols new-fields">
       <div class="field"><label>Pour</label>
         <select id="new-gender">
@@ -202,6 +203,6 @@
 <div class="toast" id="toast"></div>
 <div class="busy" id="busy" hidden><div class="spin"></div><p id="busy-text">L'agent regarde tes photos…</p></div>
 
-<script type="module" src="js/app.js?v=15"></script>
+<script type="module" src="js/app.js?v=18"></script>
 </body>
 </html>

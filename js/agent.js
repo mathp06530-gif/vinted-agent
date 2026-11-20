@@ -1,8 +1,8 @@
 // L'agent : Qwen (vision) regarde les photos, GPT-OSS 120B écrit l'annonce. Tout passe par Groq.
-import { SYSTEM, VISION_PROMPT } from "./prompts.js?v=15";
-import { guideFor } from "./legit.js?v=15";
-import { categoriesFor } from "./categories.js?v=15";
-import { modelsFor } from "./models.js?v=15";
+import { SYSTEM, VISION_PROMPT } from "./prompts.js?v=18";
+import { guideFor } from "./legit.js?v=18";
+import { categoriesFor } from "./categories.js?v=18";
+import { modelsFor } from "./models.js?v=18";
 
 const GROQ_URL = "https://api.groq.com/openai/v1/chat/completions";
 export const VISION_MODELS = { "qwen/qwen3.8-27b": "Qwen 3.8 27B (vision)" };
@@ -43,6 +43,28 @@ const ANNONCE_FORMAT = strict("annonce", {
 });
 
 export class AgentError extends Error {}
+// Repères sans équivoque : si l'œil les a lus ou vus, la marque est forcément celle-ci
+const BRAND_SIGNATURES = [
+  ["Nike", /\b(tn|tuned|air ?max|swoosh|virgule nike|just do it|nike)\b/],
+  ["Jordan", /\b(jumpman|air jordan)\b/],
+  ["Adidas", /\b(adidas|tr[eè]fle|trefoil|samba|gazelle|stan smith|superstar)\b/],
+  ["New Balance", /\bnew balance\b/],
+  ["The North Face", /\bnorth face\b/],
+  ["Reebok", /\breebok\b/],
+  ["Puma", /\b(puma|formstrip)\b/],
+  ["Lacoste", /\b(lacoste|logo crocodile)\b/],
+  ["Ralph Lauren", /\b(ralph lauren|polo pony|joueur de polo)\b/],
+  ["Converse", /\b(converse|chuck taylor)\b/],
+  ["Vans", /\b(vans|jazz stripe|off the wall)\b/],
+  ["Carhartt", /\bcarhartt\b/],
+  ["Levi's", /\blevi'?s\b/],
+  ["Stone Island", /\bstone island\b/],
+  ["Moncler", /\bmoncler\b/],
+  ["Tommy Hilfiger", /\btommy hilfiger\b/],
+  // (pas de mots courants comme « champion » ou « all star » : ils apparaissent aussi dans des imprimés)
+];
+// Dernières notes de l'« œil » (pour comprendre une erreur)
+export let lastVision = null;
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -107,7 +129,7 @@ export function humanize(t) {
  * photosB64 : photos en base64 (JPEG). listing : l'annonce actuelle.
  * Renvoie les champs à enregistrer.
  */
-export async function generate({ key, cfg, listing, photosB64, extraHints = "", examples = [], corrections = [], onStep }) {
+export async function generate({ key, cfg, listing, photosB64, labelCount = 0, extraHints = "", examples = [], corrections = [], onStep }) {
   if (!key) throw new AgentError("Ajoute ta clé Groq (gratuite, console.groq.com) dans Réglages pour activer l'agent.");
   if (!photosB64.length) throw new AgentError("Ajoute au moins une photo.");
   const visionModel = cfg.groq_vision_model || Object.keys(VISION_MODELS)[0];
@@ -117,6 +139,7 @@ export async function generate({ key, cfg, listing, photosB64, extraHints = "", 
   // 1. L'œil regarde les photos (un seul envoi, 3 images max)
   onStep?.("L'agent regarde tes photos…");
   const content = [{ type: "text", text: VISION_PROMPT
+    + (labelCount ? `\n\nLa ou les ${labelCount} première(s) image(s) sont des GROS PLANS D'ÉTIQUETTE : lis chaque caractère avec soin (marque, taille, code produit, composition, Made in) et recopie-les dans textes_lus.` : "")
     + "\n\nCertaines images peuvent être des planches qui regroupent plusieurs photos numérotées."
     + (hints ? `\n\nInfo du vendeur : ${hints}` : "")
     + `\n\nRéponds UNIQUEMENT avec un objet JSON qui a exactement ces clés :\n${OBS_KEYS}` }];
@@ -127,11 +150,13 @@ export async function generate({ key, cfg, listing, photosB64, extraHints = "", 
     model: visionModel, messages: [{ role: "user", content }],
     response_format: { type: "json_object" }, max_completion_tokens: 3000, temperature: 0.2,
   }, onStep)];
+  lastVision = notes[0];
 
   // 2. Le rédacteur écrit l'annonce
   onStep?.("L'agent rédige l'annonce…");
   // Champs imposés par le vendeur : saisis à la création (genre, taille) ou modifiés à la main dans la fiche
-  const manual = Object.fromEntries(Object.entries(listing.manual || {}).filter(([, v]) => v !== "" && v != null));
+  // (les clés qui commencent par « _ » sont des réglages internes, pas des champs de l'annonce)
+  const manual = Object.fromEntries(Object.entries(listing.manual || {}).filter(([k, v]) => !k.startsWith("_") && v !== "" && v != null));
   const LABELS = { gender: "genre", size: "taille", brand: "marque", model: "modèle", category: "catégorie",
     condition: "état", color: "couleur", material: "matière", price: "prix" };
   let text ="Tu n'as pas les photos sous les yeux : un assistant les a regardées pour toi et a noté ce qu'il voit "
@@ -193,6 +218,26 @@ export async function generate({ key, cfg, listing, photosB64, extraHints = "", 
       a.notes_vendeur = `Marque non lisible sur les photos (ni étiquette ni logo clair) : je ne l'ai pas devinée. ${a.notes_vendeur || ""}`.trim();
       if (!a.photo_a_ajouter) a.photo_a_ajouter = "étiquette de marque au col (de près, bien nette)";
     } else if (!brandRead) cap("confiance_marque", proof.startsWith("logo") ? "haute" : "moyenne");
+  }
+  // --- Contrôle par repères sans équivoque (lus ou vus par l'œil) : rattrape une marque fausse ---
+  const cueText = [...(n0.textes_lus || []), ...(n0.details || []), ...(n0.signaux_authenticite || []), n0.modele_probable]
+    .join(" | ").toLowerCase();
+  const cueBrands = [...new Set(BRAND_SIGNATURES.filter(([, re]) => re.test(cueText)).map(([b]) => b))];
+  if (!manual.brand && cueBrands.length === 1) {
+    const cue = cueBrands[0];
+    if (norm(a.marque) !== norm(cue)) {
+      const wrong = a.marque;
+      if (wrong) {
+        const re = new RegExp(wrong.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi");
+        a.titre = a.titre.replace(re, cue); a.description = a.description.replace(re, cue);
+        a.hashtags = (a.hashtags || []).filter((t) => norm(t) !== norm(wrong));
+      } else if (!norm(a.titre).includes(norm(cue))) a.titre = `${cue} ${a.titre}`.trim();
+      a.marque = cue;
+      a.confiance_marque = "moyenne";
+      a.notes_vendeur = `Marque corrigée${wrong ? ` (« ${wrong} » → « ${cue} »)` : ""} d'après un repère vu sur les photos. ${a.notes_vendeur || ""}`.trim();
+    }
+  } else if (!manual.brand && cueBrands.length > 1 && a.marque) {
+    a.confiance_marque = "basse"; // repères contradictoires : à vérifier
   }
   if (!a.marque && !manual.brand) a.confiance_marque = "basse";
   if (a.modele && !manual.model && !read.includes(norm(a.modele)) && !norm(n0.modele_probable)) cap("confiance_modele", "moyenne");
