@@ -1,6 +1,6 @@
 :root {
   --bg: #f6f7f8; --card: #fff; --ink: #1d2327; --muted: #6b7378; --line: #e3e6e8;
-  --accent: #09777f; --accent-ink: #fff; --accent-soft: #e2f2f3;
+  --accent: #007782; --accent-ink: #fff; --accent-soft: #e0f4f5;
   --warn-bg: #fff6dc; --warn-line: #f0d68a; --danger: #c0392b;
   --st-brouillon: #8a6d00; --st-brouillon-bg: #fff3c4;
   --st-prete: #09777f; --st-prete-bg: #dcf1f2;
@@ -11,7 +11,7 @@
 @media (prefers-color-scheme: dark) {
   :root {
     --bg: #121516; --card: #1b1f21; --ink: #e8ecee; --muted: #9aa3a8; --line: #2c3236;
-    --accent: #2bb3bc; --accent-ink: #062224; --accent-soft: #163236;
+    --accent: #09b1ba; --accent-ink: #04282b; --accent-soft: #123538;
     --warn-bg: #2d2817; --warn-line: #5c4f22;
     --st-brouillon: #f0cf5a; --st-brouillon-bg: #3a3214;
     --st-prete: #5fd3da; --st-prete-bg: #173638;
@@ -37,7 +37,7 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
 
 .top { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px; max-width: 1100px; margin: 0 auto; }
 .brand { display: flex; gap: 10px; align-items: center; }
-.logo { width: 36px; height: 36px; border-radius: 10px; background: var(--accent); color: var(--accent-ink); display: grid; place-items: center; font-weight: 800; }
+.logo { width: 36px; height: 36px; border-radius: 10px; display: block; }
 .sub { margin: 0; color: var(--muted); font-size: 13px; }
 main { max-width: 1100px; margin: 0 auto; padding: 0 16px 60px; }
 .card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; }
