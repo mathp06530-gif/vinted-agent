@@ -1,13 +1,13 @@
-import * as store from "./store.js?v=18";
-import { generate, VISION_MODELS, TEXT_MODELS, MAX_IMAGES, LOCKABLE } from "./agent.js?v=18";
-import { toJpeg, makeSheets, blobToBase64 } from "./images.js?v=18";
+import * as store from "./store.js?v=20";
+import { generate, VISION_MODELS, TEXT_MODELS, MAX_IMAGES, LOCKABLE } from "./agent.js?v=20";
+import { toJpeg, makeSheets, blobToBase64 } from "./images.js?v=20";
 
 const $ = (s) => document.querySelector(s);
 const STATUS_LABEL = { brouillon: "À vérifier", prete: "Prête", publiee: "Publiée", vendue: "Vendue" };
 const FIELDS = ["title", "description", "hashtags", "gender", "brand", "model", "category", "size", "condition", "color", "material", "price", "hints"];
 const DEFAULT_SETTINGS = {
   groq_api_key: "", groq_vision_model: Object.keys(VISION_MODELS)[0], groq_text_model: "openai/gpt-oss-120b",
-  tutoiement: true, emojis: "rare", hashtags: true, signature: "", style: "naturel", marge_prix: "normal",
+  tutoiement: true, emojis: "rare", hashtags: true, double_check: true, signature: "", style: "naturel", marge_prix: "normal",
 };
 let cfg = { ...DEFAULT_SETTINGS };
 let items = [];
@@ -507,6 +507,7 @@ $("#btn-settings").addEventListener("click", () => {
   $("#s-groq_text_model").innerHTML = opts(TEXT_MODELS);
   SET_FIELDS.forEach((f) => { $(`#s-${f}`).value = String(cfg[f] ?? ""); });
   $("#s-hashtags").checked = cfg.hashtags !== false;
+  $("#s-double_check").checked = cfg.double_check !== false;
   $("#s-groq_api_key").value = "";
   $("#gkey-state").textContent = cfg.groq_api_key ? `configurée (…${cfg.groq_api_key.slice(-4)})` : "pas encore configurée";
   $("#settings").showModal();
@@ -516,6 +517,7 @@ $("#btn-set-save").addEventListener("click", () => guard(async () => {
   SET_FIELDS.forEach((f) => { next[f] = $(`#s-${f}`).value; });
   next.tutoiement = next.tutoiement === "true";
   next.hashtags = $("#s-hashtags").checked;
+  next.double_check = $("#s-double_check").checked;
   const k = $("#s-groq_api_key").value.trim();
   if (k) next.groq_api_key = k;
   await store.saveSettings(next);

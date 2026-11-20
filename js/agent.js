@@ -1,8 +1,8 @@
 // L'agent : Qwen (vision) regarde les photos, GPT-OSS 120B écrit l'annonce. Tout passe par Groq.
-import { SYSTEM, VISION_PROMPT } from "./prompts.js?v=18";
-import { guideFor } from "./legit.js?v=18";
-import { categoriesFor } from "./categories.js?v=18";
-import { modelsFor } from "./models.js?v=18";
+import { SYSTEM, VISION_PROMPT } from "./prompts.js?v=20";
+import { guideFor } from "./legit.js?v=20";
+import { categoriesFor } from "./categories.js?v=20";
+import { modelsFor } from "./models.js?v=20";
 
 const GROQ_URL = "https://api.groq.com/openai/v1/chat/completions";
 export const VISION_MODELS = { "qwen/qwen3.8-27b": "Qwen 3.8 27B (vision)" };
@@ -65,6 +65,13 @@ const BRAND_SIGNATURES = [
 ];
 // Dernières notes de l'« œil » (pour comprendre une erreur)
 export let lastVision = null;
+export let lastVision2 = null;
+// Consigne courte de la 2e lecture (peu de texte = assez de place pour les images dans la limite gratuite)
+const SECOND_PROMPT = "Deuxième vérification, sois très rigoureux. Réponds UNIQUEMENT avec ce JSON : "
+  + '{"marque":"","preuve_marque":"texte lu|logo|aucune","textes_lus":[],"modele":"","type_article":"","taille_lue":""}. '
+  + "textes_lus : recopie exactement tout texte lisible (étiquettes, semelle, imprimés). "
+  + "marque : seulement si tu LIS son nom ou vois un logo précis, sinon vide (ne devine jamais d'après le style). "
+  + "modele : seulement si un nom, un logo de modèle ou une silhouette iconique le prouve. taille_lue : exactement comme écrite.";
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -81,8 +88,13 @@ async function groq(key, body, onWait) {
       throw new AgentError("Pas de connexion à Groq. Vérifie ta connexion internet.");
     }
     if (r.status === 429) {
+      // Groq dit combien de temps attendre : en-tête retry-after, ou « try again in 7.25s / 1m2.5s » dans le message
       const h = r.headers.get("retry-after");
-      const wait = Math.min(60, h !== null && !isNaN(+h) ? Math.ceil(+h) : 15);
+      const msg = (await r.json().catch(() => ({})))?.error?.message || "";
+      const m = msg.match(/try again in (?:(\d+)m)?([\d.]+)s/i);
+      const fromMsg = m ? (Number(m[1] || 0) * 60 + Number(m[2])) : NaN;
+      const raw = !isNaN(fromMsg) ? fromMsg : (h !== null && !isNaN(+h) ? +h : 15);
+      const wait = Math.min(60, Math.max(1, Math.ceil(raw + 0.5)));
       if (attempt === 3) throw new AgentError("Limite gratuite Groq atteinte pour le moment. Réessaie dans une minute.");
       onWait?.(`Limite Groq, on attend ${wait} s…`);
       await sleep(wait * 1000);
@@ -243,6 +255,75 @@ export async function generate({ key, cfg, listing, photosB64, labelCount = 0, e
   if (a.modele && !manual.model && !read.includes(norm(a.modele)) && !norm(n0.modele_probable)) cap("confiance_modele", "moyenne");
   if (!a.modele && !manual.model) a.confiance_modele = "basse";
   if (!a.taille && !manual.size) a.confiance_taille = "basse";
+
+  // --- 2e lecture : quand l'agent hésite, il relit les photos et compare ---
+  // marque à revérifier : pas sûre, OU « vue en logo » sans que son nom soit écrit ni reconnu par un repère connu
+  const logoOnly = Boolean(a.marque) && !read.includes(norm(a.marque)) && !cueBrands.length;
+  const unsureBrand = !manual.brand && (a.confiance_marque !== "haute" || logoOnly);
+  const unsureModel = !manual.model && a.confiance_modele === "basse" && Boolean(a.marque || manual.brand);
+  const unsureSize = !manual.size && !a.taille && labelCount > 0;
+  lastVision2 = null;
+  if (cfg.double_check !== false && (unsureBrand || unsureModel || unsureSize)) {
+    onStep?.("L'agent n'est pas sûr : il relit les photos pour vérifier…");
+    let v2 = null;
+    try {
+      const c2 = [{ type: "text", text: SECOND_PROMPT + (labelCount ? "\nLa première image est un gros plan d'étiquette." : "") }];
+      photosB64.slice(0, 2).forEach((b64) => c2.push({ type: "image_url", image_url: { url: `data:image/jpeg;base64,${b64}` } }));
+      v2 = await groq(key, { model: visionModel, messages: [{ role: "user", content: c2 }],
+        response_format: { type: "json_object" }, max_completion_tokens: 800, temperature: 0 }, onStep);
+    } catch { v2 = null; } // la 2e lecture est un bonus : en cas d'échec on garde la 1re
+    if (v2) {
+      lastVision2 = v2;
+      const text2 = [...(v2.textes_lus || []), v2.modele].join(" | ").toLowerCase();
+      const cues2 = [...new Set(BRAND_SIGNATURES.filter(([, re]) => re.test(text2)).map(([b]) => b))];
+      const proof2 = String(v2.preuve_marque || "").toLowerCase();
+      const brand2 = cues2.length === 1 ? cues2[0] : (proof2.startsWith("aucun") ? "" : String(v2.marque || "").trim());
+      // « lue comme une étiquette » : le nom seul (ou presque), pas un mot perdu dans un imprimé (« Golf Ball CHAMPION »)
+      const nb2 = norm(brand2);
+      const read2 = nb2.length >= 2 && (v2.textes_lus || []).some((t) => {
+        const nt = norm(t);
+        return nt === nb2 || (nt.startsWith(nb2) && nt.length <= nb2.length + 6);
+      });
+      if (unsureBrand) {
+        if (a.marque && brand2 && norm(brand2) === norm(a.marque)) {
+          a.confiance_marque = proof2.startsWith("texte") || proof2.startsWith("logo") || cues2.length ? "haute" : "moyenne";
+          a.notes_vendeur = `Marque confirmée par une 2e lecture. ${a.notes_vendeur || ""}`.trim();
+        } else if (!a.marque && brand2 && (read2 || cues2.length === 1)) {
+          a.marque = brand2; a.confiance_marque = "moyenne";
+          if (!norm(a.titre).includes(norm(brand2))) a.titre = `${brand2} ${a.titre}`.trim();
+          a.notes_vendeur = `Marque trouvée à la 2e lecture (« ${brand2} » lu sur les photos) : vérifie-la. ${a.notes_vendeur || ""}`.trim();
+        } else if (a.marque && !brand2 && !cueBrands.length
+          && !read.includes(norm(a.marque)) && !norm(text2).includes(norm(a.marque))) {
+          // la 1re lecture « voyait » un logo, la 2e ne voit aucune marque, et le nom n'est écrit nulle part :
+          // c'est très probablement une marque inventée -> on la retire
+          const wrong = a.marque;
+          const re = new RegExp(`\\s*${wrong.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*`, "gi");
+          a.titre = a.titre.replace(re, " ").replace(/\s{2,}/g, " ").trim();
+          a.description = a.description.replace(re, " ").replace(/\s{2,}/g, " ").trim();
+          a.hashtags = (a.hashtags || []).filter((t) => norm(t) !== norm(wrong));
+          a.marque = ""; a.confiance_marque = "basse";
+          a.notes_vendeur = `Marque « ${wrong} » retirée : la 2e lecture ne l'a pas confirmée et son nom n'est écrit nulle part. Ajoute une photo de l'étiquette. ${a.notes_vendeur || ""}`.trim();
+          if (!a.photo_a_ajouter) a.photo_a_ajouter = "étiquette de marque au col (de près, bien nette)";
+        } else if (a.marque && brand2 && norm(brand2) !== norm(a.marque)) {
+          a.confiance_marque = "basse";
+          a.notes_vendeur = `Les 2 lectures ne sont pas d'accord sur la marque : « ${a.marque} » ou « ${brand2} » ? À vérifier sur l'étiquette. ${a.notes_vendeur || ""}`.trim();
+        }
+      }
+      const model2 = String(v2.modele || "").trim();
+      if (unsureModel && model2 && !a.modele) {
+        // on n'ajoute un modèle que si les 2 lectures donnent le même
+        const m1 = norm(n0.modele_probable), m2 = norm(model2);
+        if (m1 && (m1.includes(m2) || m2.includes(m1))) {
+          a.modele = model2.replace(new RegExp(`^${(a.marque || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*`, "i"), "");
+          a.confiance_modele = "moyenne";
+          if (!norm(a.titre).includes(norm(a.modele))) a.titre = a.titre.replace(new RegExp(`(${(a.marque || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})`, "i"), `$1 ${a.modele}`);
+        }
+      }
+      if (unsureSize && v2.taille_lue && !a.taille) {
+        a.taille = String(v2.taille_lue).trim(); a.confiance_taille = "moyenne";
+      }
+    }
+  }
   // Filet de sécurité : jamais de « taille non indiquée » dans le texte public
   const noUnknown = (t) => String(t || "")
     .replace(/[,\s]*(taille|pointure|matière)\s+(non\s+(indiquée?|visible|précisée?)|inconnue?)/gi, "")

@@ -11,7 +11,7 @@
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png?v=2">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Vinted Agent">
-<link rel="stylesheet" href="style.css?v=18">
+<link rel="stylesheet" href="style.css?v=20">
 </head>
 <body>
 <header class="top">
@@ -190,6 +190,8 @@
         <select id="s-tutoiement"><option value="true">Tutoiement</option><option value="false">Vouvoiement</option></select></div>
     </div>
     <div class="field"><label><span><input type="checkbox" id="s-hashtags"> Ajouter des hashtags</span></label></div>
+    <div class="field"><label><span><input type="checkbox" id="s-double_check"> Double vérification quand l'agent hésite</span></label>
+      <small>Il relit les photos pour confirmer la marque, le modèle ou la taille. Plus fiable, mais jusqu'à 1 minute de plus dans ces cas-là (limite gratuite de Groq).</small></div>
     <div class="field"><label>Ta phrase de fin habituelle</label>
       <input id="s-signature" placeholder="ex : envoi rapide, je fais des lots, n'hésite pas à faire une offre"></div>
     <div class="ed-actions">
@@ -203,6 +205,6 @@
 <div class="toast" id="toast"></div>
 <div class="busy" id="busy" hidden><div class="spin"></div><p id="busy-text">L'agent regarde tes photos…</p></div>
 
-<script type="module" src="js/app.js?v=18"></script>
+<script type="module" src="js/app.js?v=20"></script>
 </body>
 </html>
