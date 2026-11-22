@@ -1,7 +1,7 @@
-import * as store from "./store.js?v=29";
-import { generate, VISION_MODELS, TEXT_MODELS, MAX_IMAGES, LOCKABLE } from "./agent.js?v=29";
-import { toJpeg, makeSheets, blobToBase64, studioPhoto } from "./images.js?v=29";
-import { allBrands } from "./brands.js?v=29";
+import * as store from "./store.js?v=30";
+import { generate, VISION_MODELS, TEXT_MODELS, MAX_IMAGES, LOCKABLE } from "./agent.js?v=30";
+import { toJpeg, makeSheets, blobToBase64, studioPhoto } from "./images.js?v=30";
+import { allBrands } from "./brands.js?v=30";
 
 const $ = (s) => document.querySelector(s);
 const STATUS_LABEL = { brouillon: "À vérifier", prete: "Prête", publiee: "Publiée", vendue: "Vendue" };

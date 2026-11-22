@@ -1,10 +1,10 @@
 // L'agent : Qwen (vision) regarde les photos, GPT-OSS 120B écrit l'annonce. Tout passe par Groq.
-import { SYSTEM, VISION_PROMPT } from "./prompts.js?v=29";
-import { guideFor } from "./legit.js?v=29";
-import { categoriesFor } from "./categories.js?v=29";
-import { modelsFor } from "./models.js?v=29";
-import { allBrands, matchBrand } from "./brands.js?v=29";
-import { lexiqueFor, stripForbidden } from "./lexique.js?v=29";
+import { SYSTEM, VISION_PROMPT } from "./prompts.js?v=30";
+import { guideFor } from "./legit.js?v=30";
+import { categoriesFor } from "./categories.js?v=30";
+import { modelsFor } from "./models.js?v=30";
+import { allBrands, matchBrand } from "./brands.js?v=30";
+import { lexiqueFor, stripForbidden } from "./lexique.js?v=30";
 
 const GROQ_URL = "https://api.groq.com/openai/v1/chat/completions";
 export const VISION_MODELS = { "qwen/qwen3.8-27b": "Qwen 3.8 27B (vision)" };

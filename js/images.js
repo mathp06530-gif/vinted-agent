@@ -98,7 +98,8 @@ function contentBox(img) {
 
 export const STUDIO_STYLES = {
   // fond clair + sol gris-beige doux (béton ciré clair) : va avec toutes les couleurs
-  sol: { label: "Sol gris-beige", floor: true, wall: [241, 239, 235], floorFar: [214, 209, 202], floorNear: [200, 195, 187] },
+  // sol vu du dessus sur toute l'image (béton ciré gris-beige clair) : le vêtement y est posé à plat
+  sol: { label: "Sol gris-beige", floor: true, base: [214, 210, 203] },
   // fonds plats sans sol
   blanc: { label: "Blanc", top: [250, 250, 249], bottom: [234, 234, 232] },
   gris: { label: "Gris clair", top: [243, 243, 242], bottom: [214, 214, 211] },
@@ -224,55 +225,34 @@ function drawFlat(ctx, W, H, st) {
 }
 
 /**
- * Fond clair + sol neutre, sans murs ni perspective : la limite mur/sol est douce (comme un fond papier qui
- * descend jusqu'au sol), le sol est un peu plus foncé devant, avec une texture très fine de béton ciré.
+ * Sol vu du dessus sur toute l'image : béton ciré gris-beige clair, texture fine et marbrures très douces,
+ * lumière un peu plus forte au centre. Couleur neutre qui va avec tous les vêtements.
  */
 function drawFloor(ctx, W, H, st) {
-  const rgb = (a) => `rgb(${a.join(",")})`;
-  const horizon = H * 0.6;
-  // mur clair, avec une lumière douce au centre
-  const gw = ctx.createLinearGradient(0, 0, 0, horizon);
-  gw.addColorStop(0, rgb(st.wall.map((v) => v - 6))); gw.addColorStop(1, rgb(st.wall));
-  ctx.fillStyle = gw; ctx.fillRect(0, 0, W, horizon + 2);
-  // sol : transition douce depuis le mur, plus foncé vers l'avant
-  const gf = ctx.createLinearGradient(0, horizon - H * 0.05, 0, H);
-  gf.addColorStop(0, rgb(st.wall)); gf.addColorStop(0.18, rgb(st.floorFar)); gf.addColorStop(1, rgb(st.floorNear));
-  ctx.fillStyle = gf; ctx.fillRect(0, horizon - H * 0.05, W, H - horizon + H * 0.05);
-  // lumière douce sur le mur et flaque de lumière au sol sous l'article
-  const spot = ctx.createRadialGradient(W / 2, H * 0.42, 0, W / 2, H * 0.42, W * 0.7);
-  spot.addColorStop(0, "rgba(255,255,255,0.35)"); spot.addColorStop(1, "rgba(255,255,255,0)");
-  ctx.fillStyle = spot; ctx.fillRect(0, 0, W, H);
-  const pool = ctx.createRadialGradient(W / 2, H * 0.86, 0, W / 2, H * 0.86, W * 0.6);
-  pool.addColorStop(0, "rgba(255,255,255,0.18)"); pool.addColorStop(1, "rgba(255,255,255,0)");
-  ctx.fillStyle = pool; ctx.fillRect(0, horizon, W, H - horizon);
-  // texture fine du sol (béton ciré) + léger grain sur le mur
-  const img = ctx.getImageData(0, 0, W, H), d = img.data;
+  const [br, bg, bb] = st.base;
+  const img = ctx.createImageData(W, H), d = img.data;
+  // marbrures à grande échelle (somme de quelques ondes) + grain fin
+  const f1 = Math.random() * 6, f2 = Math.random() * 6;
   for (let y = 0; y < H; y++) {
-    const onFloor = y > horizon;
-    const amp = onFloor ? 7 : 2.5;
     for (let x = 0; x < W; x++) {
       const i = (y * W + x) * 4;
-      // grain + très légères marbrures sur le sol
-      const n = (Math.random() - 0.5) * amp + (onFloor ? Math.sin(x * 0.013 + y * 0.004) * Math.sin(y * 0.021 - x * 0.006) * 2.2 : 0);
-      d[i] += n; d[i + 1] += n; d[i + 2] += n;
+      const cloud = Math.sin(x * 0.006 + f1) * Math.cos(y * 0.005 + f2) * 4
+        + Math.sin((x + y) * 0.013 + f2) * 2 + Math.sin(x * 0.031 - y * 0.017 + f1) * 1.2;
+      const grain = (Math.random() - 0.5) * 6;
+      const n = cloud + grain;
+      d[i] = br + n; d[i + 1] = bg + n; d[i + 2] = bb + n * 0.9; d[i + 3] = 255;
     }
   }
   ctx.putImageData(img, 0, 0);
-  // vignettage très léger
-  const v = ctx.createRadialGradient(W / 2, H * 0.55, W * 0.5, W / 2, H * 0.55, W * 1.1);
-  v.addColorStop(0, "rgba(0,0,0,0)"); v.addColorStop(1, "rgba(0,0,0,0.08)");
+  // lumière douce au centre, bords un peu plus sombres (comme une photo bien éclairée)
+  const light = ctx.createRadialGradient(W / 2, H * 0.45, 0, W / 2, H * 0.45, W * 0.85);
+  light.addColorStop(0, "rgba(255,255,255,0.22)"); light.addColorStop(1, "rgba(255,255,255,0)");
+  ctx.fillStyle = light; ctx.fillRect(0, 0, W, H);
+  const v = ctx.createRadialGradient(W / 2, H / 2, W * 0.45, W / 2, H / 2, W * 1.05);
+  v.addColorStop(0, "rgba(0,0,0,0)"); v.addColorStop(1, "rgba(0,0,0,0.12)");
   ctx.fillStyle = v; ctx.fillRect(0, 0, W, H);
 }
 
-/** Base de l'article : où il touche le sol (pour placer l'ombre de contact au bon endroit). */
-function bottomProfile(canvas) {
-  const w = canvas.width, h = canvas.height;
-  const band = Math.max(3, Math.round(h * 0.06));
-  const { data } = canvas.getContext("2d", { willReadFrequently: true }).getImageData(0, h - band, w, band);
-  let x0 = w, x1 = -1;
-  for (let y = 0; y < band; y++) for (let x = 0; x < w; x++) if (data[(y * w + x) * 4 + 3] > 140) { if (x < x0) x0 = x; if (x > x1) x1 = x; }
-  return x1 < 0 ? { x: w * 0.2, w: w * 0.6 } : { x: x0, w: x1 - x0 };
-}
 
 /** Silhouette noire du vêtement (pour les ombres). */
 function silhouette(canvas) {
@@ -324,9 +304,8 @@ export async function studioPhoto(blob, { style = "sol", onProgress } = {}) {
   if (st === STUDIO_STYLES.blanc && meanLight(px.data) > 170) st = STUDIO_STYLES.gris;
   if (st.floor) drawFloor(ctx, W, H, st); else drawFlat(ctx, W, H, st);
 
-  // 2. taille et position : dans la pièce, l'article est POSÉ sur le sol (sa base touche le sol)
-  const floorY = Math.round(H * 0.87); // l'article est posé ici
-  const maxW = W * (st.floor ? 0.8 : 0.86), maxH = st.floor ? floorY - H * 0.08 : H * 0.82;
+  // 2. taille et position : centré, avec de la marge (comme une photo à plat prise du dessus)
+  const maxW = W * (st.floor ? 0.8 : 0.86), maxH = H * (st.floor ? 0.8 : 0.82);
   const scale = Math.min(maxW / iw, maxH / ih);
   const dw = Math.round(iw * scale), dh = Math.round(ih * scale);
   const sized = document.createElement("canvas"); sized.width = dw; sized.height = dh;
@@ -335,27 +314,15 @@ export async function studioPhoto(blob, { style = "sol", onProgress } = {}) {
   sctx.drawImage(item, 0, 0, dw, dh);
   sharpen(sctx, dw, dh);
   const dx = Math.round((W - dw) / 2);
-  const dy = st.floor ? floorY - dh : Math.round((H - dh) / 2);
+  const dy = Math.round((H - dh) / 2);
 
-  // 3. ombres sur le sol
+  // 3. ombres d'un objet posé à plat sur le sol : douce et large + fine tout autour (contact)
   const sil = silhouette(sized);
-  const base = bottomProfile(sized); // où l'article touche vraiment le sol (gauche/droite de sa base)
-  // ombre portée vers l'arrière, aplatie sur le sol (lumière venant de face, un peu en hauteur)
-  ctx.save(); ctx.globalAlpha = st.floor ? 0.22 : 0.14; ctx.filter = "blur(22px)";
-  // la base de l'ombre colle à la base de l'article, le haut part vers l'arrière (vers le mur)
-  ctx.setTransform(1, 0, -0.18, 0.22, dx + dh * 0.18, dy + dh - dh * 0.22);
-  ctx.drawImage(sil, 0, 0);
+  ctx.save(); ctx.globalAlpha = st.floor ? 0.32 : 0.14; ctx.filter = "blur(18px)";
+  ctx.drawImage(sil, dx + 4, dy + 12, dw, dh); // lumière venant d'en haut, un peu de face
   ctx.restore();
-  // ombre de contact : bande sombre et nette exactement sous la base
-  ctx.save(); ctx.globalAlpha = st.floor ? 0.5 : 0.35; ctx.filter = "blur(7px)";
-  ctx.fillStyle = "#000";
-  const cx = dx + base.x, cw = Math.max(20, base.w);
-  ctx.beginPath(); ctx.ellipse(cx + cw / 2, dy + dh - 2, cw / 2 * 1.02, Math.max(6, dh * 0.012), 0, 0, Math.PI * 2); ctx.fill();
-  ctx.restore();
-  // ombre douce large (lumière d'ambiance)
-  ctx.save(); ctx.globalAlpha = st.floor ? 0.22 : 0.12; ctx.filter = "blur(30px)";
-  ctx.fillStyle = "#000";
-  ctx.beginPath(); ctx.ellipse(cx + cw / 2, dy + dh + 4, cw * 0.62, Math.max(14, dh * 0.035), 0, 0, Math.PI * 2); ctx.fill();
+  ctx.save(); ctx.globalAlpha = st.floor ? 0.38 : 0.2; ctx.filter = "blur(3px)";
+  ctx.drawImage(sil, dx + 1, dy + 3, dw, dh); // ombre de contact, collée au vêtement
   ctx.restore();
 
   // 4. l'article
