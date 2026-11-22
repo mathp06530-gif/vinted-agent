@@ -11,7 +11,7 @@
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png?v=2">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Vinted Agent">
-<link rel="stylesheet" href="style.css?v=28">
+<link rel="stylesheet" href="style.css?v=29">
 </head>
 <body>
 <header class="top">
@@ -234,7 +234,7 @@
     <div class="field"><label><span><input type="checkbox" id="s-hashtags"> Ajouter des hashtags</span></label></div>
     <div class="field"><label><span><input type="checkbox" id="s-studio_auto"> Fond studio automatique sur les nouvelles photos</span></label>
       <small>Détoure le vêtement et le pose sur un fond de studio, pendant que tu relis l'annonce (environ 15 s par photo). Les originaux sont gardés.</small></div>
-    <div class="field"><label>Fond studio</label><select id="s-studio_style"><option value="studio">Studio gris anthracite (pièce, recommandé)</option><option value="studio_clair">Studio gris clair (pièce)</option><option value="blanc">Fond blanc</option><option value="gris">Fond gris clair</option><option value="beige">Fond beige</option></select></div>
+    <div class="field"><label>Fond studio</label><select id="s-studio_style"><option value="sol">Fond clair + sol gris-beige (recommandé)</option><option value="blanc">Fond blanc</option><option value="gris">Fond gris clair</option><option value="beige">Fond beige</option></select></div>
     <div class="field"><label><span><input type="checkbox" id="s-double_check"> Double vérification quand l'agent hésite</span></label>
       <small>Il relit les photos pour confirmer la marque, le modèle ou la taille. Plus fiable, mais jusqu'à 1 minute de plus dans ces cas-là (limite gratuite de Groq).</small></div>
     <div class="field"><label>Ta phrase de fin habituelle</label>
@@ -250,6 +250,6 @@
 <div class="toast" id="toast"></div>
 <div class="busy" id="busy" hidden><div class="spin"></div><p id="busy-text">L'agent regarde tes photos…</p></div>
 
-<script type="module" src="js/app.js?v=28"></script>
+<script type="module" src="js/app.js?v=29"></script>
 </body>
 </html>

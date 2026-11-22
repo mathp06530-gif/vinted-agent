@@ -1,14 +1,14 @@
-import * as store from "./store.js?v=28";
-import { generate, VISION_MODELS, TEXT_MODELS, MAX_IMAGES, LOCKABLE } from "./agent.js?v=28";
-import { toJpeg, makeSheets, blobToBase64, studioPhoto } from "./images.js?v=28";
-import { allBrands } from "./brands.js?v=28";
+import * as store from "./store.js?v=29";
+import { generate, VISION_MODELS, TEXT_MODELS, MAX_IMAGES, LOCKABLE } from "./agent.js?v=29";
+import { toJpeg, makeSheets, blobToBase64, studioPhoto } from "./images.js?v=29";
+import { allBrands } from "./brands.js?v=29";
 
 const $ = (s) => document.querySelector(s);
 const STATUS_LABEL = { brouillon: "À vérifier", prete: "Prête", publiee: "Publiée", vendue: "Vendue" };
 const FIELDS = ["title", "description", "hashtags", "gender", "brand", "model", "category", "size", "condition", "color", "material", "price", "hints"];
 const DEFAULT_SETTINGS = {
   groq_api_key: "", groq_vision_model: Object.keys(VISION_MODELS)[0], groq_text_model: "openai/gpt-oss-120b",
-  tutoiement: true, emojis: "rare", hashtags: true, double_check: true, studio_auto: true, studio_style: "studio", signature: "", style: "naturel", marge_prix: "normal",
+  tutoiement: true, emojis: "rare", hashtags: true, double_check: true, studio_auto: true, studio_style: "sol", signature: "", style: "naturel", marge_prix: "normal",
 };
 let cfg = { ...DEFAULT_SETTINGS };
 let items = [];

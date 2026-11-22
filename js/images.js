@@ -97,10 +97,9 @@ function contentBox(img) {
 }
 
 export const STUDIO_STYLES = {
-  // pièce de studio en perspective (mur du fond, murs latéraux, sol)
-  studio: { label: "Studio gris anthracite", room: true, back: [86, 84, 81], side: [66, 64, 62], floorFar: [118, 115, 111], floorNear: [150, 147, 142] },
-  studio_clair: { label: "Studio gris clair", room: true, back: [150, 148, 144], side: [124, 122, 118], floorFar: [178, 175, 170], floorNear: [204, 201, 196] },
-  // fonds plats
+  // fond clair + sol gris-beige doux (béton ciré clair) : va avec toutes les couleurs
+  sol: { label: "Sol gris-beige", floor: true, wall: [241, 239, 235], floorFar: [214, 209, 202], floorNear: [200, 195, 187] },
+  // fonds plats sans sol
   blanc: { label: "Blanc", top: [250, 250, 249], bottom: [234, 234, 232] },
   gris: { label: "Gris clair", top: [243, 243, 242], bottom: [214, 214, 211] },
   beige: { label: "Beige doux", top: [250, 246, 240], bottom: [231, 222, 209] },
@@ -225,59 +224,44 @@ function drawFlat(ctx, W, H, st) {
 }
 
 /**
- * Pièce de studio en perspective : mur du fond, mur gauche, mur droit, sol.
- * Lumière de projecteur sur le mur du fond, coins assombris, sol plus clair vers l'avant.
+ * Fond clair + sol neutre, sans murs ni perspective : la limite mur/sol est douce (comme un fond papier qui
+ * descend jusqu'au sol), le sol est un peu plus foncé devant, avec une texture très fine de béton ciré.
  */
-function drawRoom(ctx, W, H, st) {
-  const rgb = (a, k = 1) => `rgb(${a.map((v) => Math.max(0, Math.min(255, Math.round(v * k)))).join(",")})`;
-  const L = W * 0.16, R = W * 0.84;   // bords du mur du fond
-  const horizon = H * 0.66;           // jonction mur du fond / sol
-  const sideFloor = H * 0.8;          // où les murs latéraux touchent le bord de l'image
-  const poly = (pts, fill) => { ctx.beginPath(); pts.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); ctx.closePath(); ctx.fillStyle = fill; ctx.fill(); };
-
-  // sol : plus sombre au fond, plus clair devant
-  const gf = ctx.createLinearGradient(0, horizon, 0, H);
-  gf.addColorStop(0, rgb(st.floorFar)); gf.addColorStop(1, rgb(st.floorNear));
-  poly([[L, horizon], [R, horizon], [W, sideFloor], [W, H], [0, H], [0, sideFloor]], gf);
-  // mur du fond
-  const gb = ctx.createLinearGradient(0, 0, 0, horizon);
-  gb.addColorStop(0, rgb(st.back, 0.88)); gb.addColorStop(1, rgb(st.back, 1.04));
-  poly([[L, 0], [R, 0], [R, horizon], [L, horizon]], gb);
-  // murs latéraux : plus sombres vers l'extérieur
-  const gl = ctx.createLinearGradient(0, 0, L, 0);
-  gl.addColorStop(0, rgb(st.side, 0.78)); gl.addColorStop(1, rgb(st.side, 1.05));
-  poly([[0, 0], [L, 0], [L, horizon], [0, sideFloor]], gl);
-  const gr = ctx.createLinearGradient(W, 0, R, 0);
-  gr.addColorStop(0, rgb(st.side, 0.78)); gr.addColorStop(1, rgb(st.side, 1.05));
-  poly([[R, 0], [W, 0], [W, sideFloor], [R, horizon]], gr);
-
-  // projecteur : halo de lumière sur le mur du fond, derrière l'article
-  ctx.save();
-  const spot = ctx.createRadialGradient(W / 2, H * 0.4, 0, W / 2, H * 0.4, W * 0.52);
-  spot.addColorStop(0, "rgba(255,250,242,0.30)"); spot.addColorStop(0.6, "rgba(255,250,242,0.08)"); spot.addColorStop(1, "rgba(255,250,242,0)");
+function drawFloor(ctx, W, H, st) {
+  const rgb = (a) => `rgb(${a.join(",")})`;
+  const horizon = H * 0.6;
+  // mur clair, avec une lumière douce au centre
+  const gw = ctx.createLinearGradient(0, 0, 0, horizon);
+  gw.addColorStop(0, rgb(st.wall.map((v) => v - 6))); gw.addColorStop(1, rgb(st.wall));
+  ctx.fillStyle = gw; ctx.fillRect(0, 0, W, horizon + 2);
+  // sol : transition douce depuis le mur, plus foncé vers l'avant
+  const gf = ctx.createLinearGradient(0, horizon - H * 0.05, 0, H);
+  gf.addColorStop(0, rgb(st.wall)); gf.addColorStop(0.18, rgb(st.floorFar)); gf.addColorStop(1, rgb(st.floorNear));
+  ctx.fillStyle = gf; ctx.fillRect(0, horizon - H * 0.05, W, H - horizon + H * 0.05);
+  // lumière douce sur le mur et flaque de lumière au sol sous l'article
+  const spot = ctx.createRadialGradient(W / 2, H * 0.42, 0, W / 2, H * 0.42, W * 0.7);
+  spot.addColorStop(0, "rgba(255,255,255,0.35)"); spot.addColorStop(1, "rgba(255,255,255,0)");
   ctx.fillStyle = spot; ctx.fillRect(0, 0, W, H);
-  // lumière qui tombe sur le sol devant l'article
-  const pool = ctx.createRadialGradient(W / 2, H * 0.86, 0, W / 2, H * 0.86, W * 0.55);
-  pool.addColorStop(0, "rgba(255,250,242,0.22)"); pool.addColorStop(1, "rgba(255,250,242,0)");
+  const pool = ctx.createRadialGradient(W / 2, H * 0.86, 0, W / 2, H * 0.86, W * 0.6);
+  pool.addColorStop(0, "rgba(255,255,255,0.18)"); pool.addColorStop(1, "rgba(255,255,255,0)");
   ctx.fillStyle = pool; ctx.fillRect(0, horizon, W, H - horizon);
-  ctx.restore();
-
-  // coins et arêtes adoucis (comme dans une vraie pièce : l'ombre s'accumule dans les angles)
-  ctx.save(); ctx.filter = "blur(14px)"; ctx.strokeStyle = "rgba(0,0,0,0.35)"; ctx.lineWidth = 16;
-  ctx.beginPath();
-  ctx.moveTo(L, 0); ctx.lineTo(L, horizon); ctx.lineTo(R, horizon); ctx.lineTo(R, 0);
-  ctx.moveTo(L, horizon); ctx.lineTo(0, sideFloor);
-  ctx.moveTo(R, horizon); ctx.lineTo(W, sideFloor);
-  ctx.stroke();
-  ctx.restore();
-  // vignettage léger
-  const v = ctx.createRadialGradient(W / 2, H * 0.55, W * 0.4, W / 2, H * 0.55, W * 1.05);
-  v.addColorStop(0, "rgba(0,0,0,0)"); v.addColorStop(1, "rgba(0,0,0,0.22)");
+  // texture fine du sol (béton ciré) + léger grain sur le mur
+  const img = ctx.getImageData(0, 0, W, H), d = img.data;
+  for (let y = 0; y < H; y++) {
+    const onFloor = y > horizon;
+    const amp = onFloor ? 7 : 2.5;
+    for (let x = 0; x < W; x++) {
+      const i = (y * W + x) * 4;
+      // grain + très légères marbrures sur le sol
+      const n = (Math.random() - 0.5) * amp + (onFloor ? Math.sin(x * 0.013 + y * 0.004) * Math.sin(y * 0.021 - x * 0.006) * 2.2 : 0);
+      d[i] += n; d[i + 1] += n; d[i + 2] += n;
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+  // vignettage très léger
+  const v = ctx.createRadialGradient(W / 2, H * 0.55, W * 0.5, W / 2, H * 0.55, W * 1.1);
+  v.addColorStop(0, "rgba(0,0,0,0)"); v.addColorStop(1, "rgba(0,0,0,0.08)");
   ctx.fillStyle = v; ctx.fillRect(0, 0, W, H);
-  // grain très fin, pour éviter l'aspect « dessin numérique » des aplats
-  const n = ctx.getImageData(0, 0, W, H), d = n.data;
-  for (let i = 0; i < d.length; i += 4) { const r = (Math.random() - 0.5) * 5; d[i] += r; d[i + 1] += r; d[i + 2] += r; }
-  ctx.putImageData(n, 0, 0);
 }
 
 /** Base de l'article : où il touche le sol (pour placer l'ombre de contact au bon endroit). */
@@ -304,7 +288,7 @@ function silhouette(canvas) {
  * Transforme une photo en photo « studio » : détourage, bords propres, retouche, cadrage, fond papier, ombres réalistes.
  * onProgress(texte) pour afficher l'avancement. Lance une erreur si rien n'a pu être détouré.
  */
-export async function studioPhoto(blob, { style = "studio", onProgress } = {}) {
+export async function studioPhoto(blob, { style = "sol", onProgress } = {}) {
   const { removeBackground } = await loadBgLib();
   let lastPct = -1;
   const cut = await removeBackground(blob, {
@@ -335,14 +319,14 @@ export async function studioPhoto(blob, { style = "studio", onProgress } = {}) {
   const W = 1200, H = 1500;
   const c = document.createElement("canvas"); c.width = W; c.height = H;
   const ctx = c.getContext("2d");
-  let st = STUDIO_STYLES[style] || STUDIO_STYLES.studio;
+  let st = STUDIO_STYLES[style] || STUDIO_STYLES.sol; // (anciens réglages « studio » -> sol)
   // fond plat blanc + vêtement très clair : il disparaîtrait -> gris clair
   if (st === STUDIO_STYLES.blanc && meanLight(px.data) > 170) st = STUDIO_STYLES.gris;
-  if (st.room) drawRoom(ctx, W, H, st); else drawFlat(ctx, W, H, st);
+  if (st.floor) drawFloor(ctx, W, H, st); else drawFlat(ctx, W, H, st);
 
   // 2. taille et position : dans la pièce, l'article est POSÉ sur le sol (sa base touche le sol)
-  const floorY = st.room ? Math.round(H * 0.86) : Math.round(H * 0.9);
-  const maxW = W * (st.room ? 0.74 : 0.86), maxH = st.room ? floorY - H * 0.1 : H * 0.82;
+  const floorY = Math.round(H * 0.87); // l'article est posé ici
+  const maxW = W * (st.floor ? 0.8 : 0.86), maxH = st.floor ? floorY - H * 0.08 : H * 0.82;
   const scale = Math.min(maxW / iw, maxH / ih);
   const dw = Math.round(iw * scale), dh = Math.round(ih * scale);
   const sized = document.createElement("canvas"); sized.width = dw; sized.height = dh;
@@ -351,25 +335,25 @@ export async function studioPhoto(blob, { style = "studio", onProgress } = {}) {
   sctx.drawImage(item, 0, 0, dw, dh);
   sharpen(sctx, dw, dh);
   const dx = Math.round((W - dw) / 2);
-  const dy = st.room ? floorY - dh : Math.round((H - dh) / 2);
+  const dy = st.floor ? floorY - dh : Math.round((H - dh) / 2);
 
   // 3. ombres sur le sol
   const sil = silhouette(sized);
   const base = bottomProfile(sized); // où l'article touche vraiment le sol (gauche/droite de sa base)
   // ombre portée vers l'arrière, aplatie sur le sol (lumière venant de face, un peu en hauteur)
-  ctx.save(); ctx.globalAlpha = st.room ? 0.34 : 0.14; ctx.filter = "blur(22px)";
+  ctx.save(); ctx.globalAlpha = st.floor ? 0.22 : 0.14; ctx.filter = "blur(22px)";
   // la base de l'ombre colle à la base de l'article, le haut part vers l'arrière (vers le mur)
   ctx.setTransform(1, 0, -0.18, 0.22, dx + dh * 0.18, dy + dh - dh * 0.22);
   ctx.drawImage(sil, 0, 0);
   ctx.restore();
   // ombre de contact : bande sombre et nette exactement sous la base
-  ctx.save(); ctx.globalAlpha = st.room ? 0.6 : 0.35; ctx.filter = "blur(7px)";
+  ctx.save(); ctx.globalAlpha = st.floor ? 0.5 : 0.35; ctx.filter = "blur(7px)";
   ctx.fillStyle = "#000";
   const cx = dx + base.x, cw = Math.max(20, base.w);
   ctx.beginPath(); ctx.ellipse(cx + cw / 2, dy + dh - 2, cw / 2 * 1.02, Math.max(6, dh * 0.012), 0, 0, Math.PI * 2); ctx.fill();
   ctx.restore();
   // ombre douce large (lumière d'ambiance)
-  ctx.save(); ctx.globalAlpha = st.room ? 0.28 : 0.12; ctx.filter = "blur(30px)";
+  ctx.save(); ctx.globalAlpha = st.floor ? 0.22 : 0.12; ctx.filter = "blur(30px)";
   ctx.fillStyle = "#000";
   ctx.beginPath(); ctx.ellipse(cx + cw / 2, dy + dh + 4, cw * 0.62, Math.max(14, dh * 0.035), 0, 0, Math.PI * 2); ctx.fill();
   ctx.restore();

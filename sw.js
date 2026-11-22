@@ -1,6 +1,6 @@
 // Service worker minimal : rend l'appli installable sur l'écran d'accueil.
 // Toujours le réseau d'abord (pour avoir la dernière version), le cache si pas de réseau.
-const CACHE = "vinted-agent-v25";
+const CACHE = "vinted-agent-v26";
 self.addEventListener("install", () => self.skipWaiting());
 self.addEventListener("activate", (e) => e.waitUntil(self.clients.claim()));
 self.addEventListener("fetch", (e) => {
