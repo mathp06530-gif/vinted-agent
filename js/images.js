@@ -97,14 +97,30 @@ function contentBox(img) {
 }
 
 export const STUDIO_STYLES = {
-  // fond clair + sol gris-beige doux (béton ciré clair) : va avec toutes les couleurs
-  // sol vu du dessus sur toute l'image (béton ciré gris-beige clair) : le vêtement y est posé à plat
-  sol: { label: "Sol gris-beige", floor: true, base: [214, 210, 203] },
-  // fonds plats sans sol
+  // vraies photos de sols (Poly Haven, CC0), vues du dessus : le vêtement y est posé à plat
+  sol: { label: "Béton gris clair", floor: true, texture: "beton.jpg" },
+  parquet_clair: { label: "Parquet chêne clair", floor: true, texture: "parquet-clair.jpg" },
+  planches_blanches: { label: "Planches blanches", floor: true, texture: "planches-blanches.jpg" },
+  pierre: { label: "Pierre beige", floor: true, texture: "pierre.jpg" },
+  lin: { label: "Lin naturel", floor: true, texture: "lin.jpg" },
+  parquet_fonce: { label: "Parquet foncé (pour les vêtements clairs)", floor: true, texture: "parquet-fonce.jpg" },
+  // fonds unis
   blanc: { label: "Blanc", top: [250, 250, 249], bottom: [234, 234, 232] },
   gris: { label: "Gris clair", top: [243, 243, 242], bottom: [214, 214, 211] },
   beige: { label: "Beige doux", top: [250, 246, 240], bottom: [231, 222, 209] },
 };
+
+const textureCache = new Map();
+async function loadTexture(file) {
+  if (!textureCache.has(file)) {
+    const url = new URL(`../textures/${file}`, import.meta.url);
+    textureCache.set(file, fetch(url).then((r) => {
+      if (!r.ok) throw new Error("Texture de sol introuvable");
+      return r.blob();
+    }).then((b) => createImageBitmap(b)));
+  }
+  return textureCache.get(file);
+}
 
 /** Bords propres : supprime le halo semi-transparent laissé par le détourage. */
 function cleanEdges(data) {
@@ -224,35 +240,34 @@ function drawFlat(ctx, W, H, st) {
   ctx.fillStyle = light; ctx.fillRect(0, 0, W, H);
 }
 
-/**
- * Sol vu du dessus sur toute l'image : béton ciré gris-beige clair, texture fine et marbrures très douces,
- * lumière un peu plus forte au centre. Couleur neutre qui va avec tous les vêtements.
- */
-function drawFloor(ctx, W, H, st) {
-  const [br, bg, bb] = st.base;
-  const img = ctx.createImageData(W, H), d = img.data;
-  // marbrures à grande échelle (somme de quelques ondes) + grain fin
-  const f1 = Math.random() * 6, f2 = Math.random() * 6;
-  for (let y = 0; y < H; y++) {
-    for (let x = 0; x < W; x++) {
-      const i = (y * W + x) * 4;
-      const cloud = Math.sin(x * 0.006 + f1) * Math.cos(y * 0.005 + f2) * 4
-        + Math.sin((x + y) * 0.013 + f2) * 2 + Math.sin(x * 0.031 - y * 0.017 + f1) * 1.2;
-      const grain = (Math.random() - 0.5) * 6;
-      const n = cloud + grain;
-      d[i] = br + n; d[i + 1] = bg + n; d[i + 2] = bb + n * 0.9; d[i + 3] = 255;
-    }
-  }
-  ctx.putImageData(img, 0, 0);
-  // lumière douce au centre, bords un peu plus sombres (comme une photo bien éclairée)
+/** Sol vu du dessus : la photo de texture couvre toute l'image, avec une lumière douce au centre. */
+function drawFloor(ctx, W, H, tex) {
+  ctx.drawImage(tex, 0, 0, W, H);
   const light = ctx.createRadialGradient(W / 2, H * 0.45, 0, W / 2, H * 0.45, W * 0.85);
-  light.addColorStop(0, "rgba(255,255,255,0.22)"); light.addColorStop(1, "rgba(255,255,255,0)");
+  light.addColorStop(0, "rgba(255,255,255,0.16)"); light.addColorStop(1, "rgba(255,255,255,0)");
   ctx.fillStyle = light; ctx.fillRect(0, 0, W, H);
   const v = ctx.createRadialGradient(W / 2, H / 2, W * 0.45, W / 2, H / 2, W * 1.05);
-  v.addColorStop(0, "rgba(0,0,0,0)"); v.addColorStop(1, "rgba(0,0,0,0.12)");
+  v.addColorStop(0, "rgba(0,0,0,0)"); v.addColorStop(1, "rgba(0,0,0,0.16)");
   ctx.fillStyle = v; ctx.fillRect(0, 0, W, H);
 }
 
+/** Couleur moyenne d'une zone du sol (pour teinter les ombres et accorder la lumière). */
+function floorTone(ctx, W, H) {
+  const { data } = ctx.getImageData(Math.round(W * 0.3), Math.round(H * 0.3), Math.round(W * 0.4), Math.round(H * 0.4));
+  let r = 0, g = 0, b = 0, n = 0;
+  for (let i = 0; i < data.length; i += 64) { r += data[i]; g += data[i + 1]; b += data[i + 2]; n++; }
+  return [r / n, g / n, b / n];
+}
+
+/** Silhouette de l'article dans une couleur donnée (pour les ombres). */
+function tintedSilhouette(canvas, color) {
+  const s = document.createElement("canvas"); s.width = canvas.width; s.height = canvas.height;
+  const x = s.getContext("2d");
+  x.drawImage(canvas, 0, 0);
+  x.globalCompositeOperation = "source-in";
+  x.fillStyle = color; x.fillRect(0, 0, s.width, s.height);
+  return s;
+}
 
 /** Silhouette noire du vêtement (pour les ombres). */
 function silhouette(canvas) {
@@ -300,9 +315,12 @@ export async function studioPhoto(blob, { style = "sol", onProgress } = {}) {
   const c = document.createElement("canvas"); c.width = W; c.height = H;
   const ctx = c.getContext("2d");
   let st = STUDIO_STYLES[style] || STUDIO_STYLES.sol; // (anciens réglages « studio » -> sol)
-  // fond plat blanc + vêtement très clair : il disparaîtrait -> gris clair
+  // fond uni blanc + vêtement très clair : il disparaîtrait -> gris clair
   if (st === STUDIO_STYLES.blanc && meanLight(px.data) > 170) st = STUDIO_STYLES.gris;
-  if (st.floor) drawFloor(ctx, W, H, st); else drawFlat(ctx, W, H, st);
+  if (st.floor) drawFloor(ctx, W, H, await loadTexture(st.texture)); else drawFlat(ctx, W, H, st);
+  // ombres : une version sombre de la couleur du sol (une vraie ombre n'est jamais noire pure)
+  const [fr, fg, fb] = floorTone(ctx, W, H);
+  const shade = `rgb(${Math.round(fr * 0.28)},${Math.round(fg * 0.26)},${Math.round(fb * 0.24)})`;
 
   // 2. taille et position : centré, avec de la marge (comme une photo à plat prise du dessus)
   const maxW = W * (st.floor ? 0.8 : 0.86), maxH = H * (st.floor ? 0.8 : 0.82);
@@ -317,12 +335,14 @@ export async function studioPhoto(blob, { style = "sol", onProgress } = {}) {
   const dy = Math.round((H - dh) / 2);
 
   // 3. ombres d'un objet posé à plat sur le sol : douce et large + fine tout autour (contact)
-  const sil = silhouette(sized);
-  ctx.save(); ctx.globalAlpha = st.floor ? 0.32 : 0.14; ctx.filter = "blur(18px)";
-  ctx.drawImage(sil, dx + 4, dy + 12, dw, dh); // lumière venant d'en haut, un peu de face
-  ctx.restore();
-  ctx.save(); ctx.globalAlpha = st.floor ? 0.38 : 0.2; ctx.filter = "blur(3px)";
-  ctx.drawImage(sil, dx + 1, dy + 3, dw, dh); // ombre de contact, collée au vêtement
+  const sil = tintedSilhouette(sized, shade);
+  ctx.save(); ctx.globalCompositeOperation = "multiply";
+  ctx.globalAlpha = st.floor ? 0.5 : 0.18; ctx.filter = "blur(24px)";
+  ctx.drawImage(sil, dx + 6, dy + 16, dw, dh); // ombre large : lumière d'en haut, un peu de face
+  ctx.globalAlpha = st.floor ? 0.45 : 0.18; ctx.filter = "blur(8px)";
+  ctx.drawImage(sil, dx + 2, dy + 6, dw, dh); // ombre moyenne
+  ctx.globalAlpha = st.floor ? 0.55 : 0.25; ctx.filter = "blur(2px)";
+  ctx.drawImage(sil, dx + 1, dy + 2, dw, dh); // ombre de contact, collée au vêtement
   ctx.restore();
 
   // 4. l'article

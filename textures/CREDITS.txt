@@ -1,0 +1,3 @@
+Textures de sol : Poly Haven (https://polyhaven.com), licence CC0 (domaine public).
+beton = plastered_wall_04, parquet-clair = laminate_floor_02, planches-blanches = white_planks_clean,
+pierre = marble_01, lin = rough_linen (recoloré), parquet-fonce = wood_floor. Recadrées et retouchées pour Vinted Agent.
