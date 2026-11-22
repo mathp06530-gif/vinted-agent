@@ -1,10 +1,10 @@
 // L'agent : Qwen (vision) regarde les photos, GPT-OSS 120B écrit l'annonce. Tout passe par Groq.
-import { SYSTEM, VISION_PROMPT } from "./prompts.js?v=26";
-import { guideFor } from "./legit.js?v=26";
-import { categoriesFor } from "./categories.js?v=26";
-import { modelsFor } from "./models.js?v=26";
-import { allBrands, matchBrand } from "./brands.js?v=26";
-import { lexiqueFor, stripForbidden } from "./lexique.js?v=26";
+import { SYSTEM, VISION_PROMPT } from "./prompts.js?v=28";
+import { guideFor } from "./legit.js?v=28";
+import { categoriesFor } from "./categories.js?v=28";
+import { modelsFor } from "./models.js?v=28";
+import { allBrands, matchBrand } from "./brands.js?v=28";
+import { lexiqueFor, stripForbidden } from "./lexique.js?v=28";
 
 const GROQ_URL = "https://api.groq.com/openai/v1/chat/completions";
 export const VISION_MODELS = { "qwen/qwen3.8-27b": "Qwen 3.8 27B (vision)" };
@@ -324,7 +324,8 @@ export async function generate({ key, cfg, listing, photosB64, labelCount = 0, e
   const logoOnly = Boolean(a.marque) && !read.includes(norm(a.marque)) && !cueBrands.length;
   const unsureBrand = !manual.brand && (a.confiance_marque !== "haute" || logoOnly);
   const unsureModel = !manual.model && a.confiance_modele === "basse" && Boolean(a.marque || manual.brand);
-  const unsureSize = !manual.size && !a.taille && labelCount > 0;
+  // taille : à revérifier si elle manque alors qu'il y a une étiquette, ou si elle est « lue » sans photo d'étiquette
+  const unsureSize = !manual.size && (a.taille ? labelCount === 0 : labelCount > 0);
   lastVision2 = null;
   if (cfg.double_check !== false && (unsureBrand || unsureModel || unsureSize)) {
     onStep?.("L'agent n'est pas sûr : il relit les photos pour vérifier…");
@@ -387,6 +388,28 @@ export async function generate({ key, cfg, listing, photosB64, labelCount = 0, e
       }
     }
   }
+  // --- Taille : jamais inventée. Gardée seulement si lue sur une étiquette (1re ou 2e lecture) ou donnée par toi ---
+  if (a.taille && !manual.size) {
+    const toks = (x) => String(x || "").toLowerCase().normalize("NFD").split(/[\s/,;:()|]+/).map((t) => t.replace(/[^a-z0-9.]/g, "").replace(/\.$/, "")).filter(Boolean);
+    const seen = new Set([n0.taille_lue, ...(n0.textes_lus || []), lastVision2?.taille_lue, ...(lastVision2?.textes_lus || [])].flatMap(toks));
+    const wanted = toks(a.taille).filter((t) => !["eu", "fr", "us", "uk", "taille", "pointure"].includes(t));
+    const proven = wanted.length > 0 && wanted.every((t) => seen.has(t) || seen.has(t.replace(/^[wl]/, "")));
+    // les 2 lectures ont donné des tailles différentes (ex. « L » puis « 48 ») : aucune n'est fiable
+    const t2 = toks(lastVision2?.taille_lue).filter((t) => !["eu", "fr", "us", "uk"].includes(t));
+    const disagree = t2.length > 0 && !t2.every((t) => wanted.includes(t)) && !wanted.every((t) => t2.includes(t));
+    const provenFinal = proven && !disagree;
+    if (!provenFinal) {
+      const s = a.taille.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      a.titre = a.titre.replace(new RegExp(`\\s*(taille|pointure)?\\s+${s}(?![\\w])`, "i"), "").replace(/\s{2,}/g, " ").trim();
+      a.description = a.description
+        .replace(new RegExp(`,?\\s*(en\\s+)?(taille|pointure)\\s+${s}(?![\\w])`, "gi"), "")
+        .replace(/\s+([,.])/g, "$1").replace(/\.\s*\./g, ".").trim();
+      a.hashtags = (a.hashtags || []).filter((t) => !new RegExp(`(taille|pointure)?${a.taille.toLowerCase().replace(/[^a-z0-9]/g, "")}$`).test(String(t).toLowerCase().replace(/[^a-z0-9]/g, "")));
+      a.notes_vendeur = `Taille « ${a.taille} » retirée : ${disagree ? `les 2 lectures ne sont pas d'accord (« ${a.taille} » / « ${lastVision2.taille_lue} »)` : "elle n'est lisible sur aucune photo"}. Indique-la toi-même ou ajoute la photo de l'étiquette de taille. ${a.notes_vendeur || ""}`.trim();
+      a.taille = ""; a.confiance_taille = "basse";
+    }
+  }
+
   // --- Liste de marques : orthographe exacte, et alerte si la marque n'y est pas ---
   if (a.marque && !manual.brand) {
     const m = matchBrand(a.marque, allBrands(cfg.brands || []));
