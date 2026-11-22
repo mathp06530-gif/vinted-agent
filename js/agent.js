@@ -1,10 +1,10 @@
 // L'agent : Qwen (vision) regarde les photos, GPT-OSS 120B écrit l'annonce. Tout passe par Groq.
-import { SYSTEM, VISION_PROMPT } from "./prompts.js?v=31";
-import { guideFor } from "./legit.js?v=31";
-import { categoriesFor } from "./categories.js?v=31";
-import { modelsFor } from "./models.js?v=31";
-import { allBrands, matchBrand } from "./brands.js?v=31";
-import { lexiqueFor, stripForbidden } from "./lexique.js?v=31";
+import { SYSTEM, VISION_PROMPT } from "./prompts.js?v=32";
+import { guideFor } from "./legit.js?v=32";
+import { categoriesFor } from "./categories.js?v=32";
+import { modelsFor } from "./models.js?v=32";
+import { allBrands, matchBrand } from "./brands.js?v=32";
+import { lexiqueFor, stripForbidden } from "./lexique.js?v=32";
 
 const GROQ_URL = "https://api.groq.com/openai/v1/chat/completions";
 export const VISION_MODELS = { "qwen/qwen3.8-27b": "Qwen 3.8 27B (vision)" };
@@ -264,6 +264,11 @@ export async function generate({ key, cfg, listing, photosB64, labelCount = 0, e
     } catch { /* la relecture est un bonus : en cas d'échec on garde la 1re version */ }
   }
   a.description = stripForbidden(a.description);
+  // « voir photo 3 » alors qu'il n'y a qu'une photo : on corrige le renvoi
+  const nbPhotos = listing.photos?.length || photosB64.length;
+  a.description = a.description.replace(/\s*\(?\s*voir (?:la )?photos?\s*(\d+)\s*\)?/gi, (m, n) =>
+    (Number(n) >= 1 && Number(n) <= nbPhotos && nbPhotos > 1) ? m : (nbPhotos > 1 ? " (voir photos)" : ""))
+    .replace(/\s+([,.])/g, "$1");
   a.titre = stripForbidden(a.titre);
   if (reviewed.length) a.notes_vendeur = `${a.notes_vendeur || ""}\n\nRelecture : ${reviewed.slice(0, 4).join(" ; ")}`.trim();
 
