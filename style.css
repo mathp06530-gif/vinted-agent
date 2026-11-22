@@ -218,3 +218,17 @@ html, body { overflow-x: hidden; }
 .ext-box small { display: block; color: var(--muted); margin-top: 6px; }
 details.ext-box summary { cursor: pointer; font-weight: 600; }
 details.ext-box ol { margin-top: 8px; }
+
+/* --- Mes sols --- */
+.my-floors { display: grid; grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: 8px; margin: 4px 0 8px; }
+.my-floors .floor { position: relative; border: 2px solid transparent; border-radius: 10px; overflow: hidden; cursor: pointer; background: var(--line); }
+.my-floors .floor.on { border-color: var(--accent); }
+.my-floors .floor img { width: 100%; aspect-ratio: 4/5; object-fit: cover; display: block; }
+.my-floors .floor span { display: block; font-size: 11px; padding: 2px 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.my-floors .floor button { position: absolute; top: 2px; right: 2px; padding: 0 6px; background: rgba(0,0,0,.55); color: #fff; border: none; }
+.muted { color: var(--muted); }
+.ai-floor { margin-top: 10px; padding: 10px 12px; border-radius: 10px; background: var(--accent-soft); }
+.ai-floor .row { margin: 6px 0; }
+.ai-floor input { flex: 1; }
+.ai-floor details { margin-top: 6px; font-size: 13px; }
+label.btn { display: inline-block; cursor: pointer; border: 1px solid var(--line); border-radius: 9px; padding: 5px 10px; background: var(--card); }

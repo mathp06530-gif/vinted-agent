@@ -283,7 +283,7 @@ function silhouette(canvas) {
  * Transforme une photo en photo « studio » : détourage, bords propres, retouche, cadrage, fond papier, ombres réalistes.
  * onProgress(texte) pour afficher l'avancement. Lance une erreur si rien n'a pu être détouré.
  */
-export async function studioPhoto(blob, { style = "sol", onProgress } = {}) {
+export async function studioPhoto(blob, { style = "sol", floorImage = null, onProgress } = {}) {
   const { removeBackground } = await loadBgLib();
   let lastPct = -1;
   const cut = await removeBackground(blob, {
@@ -317,7 +317,9 @@ export async function studioPhoto(blob, { style = "sol", onProgress } = {}) {
   let st = STUDIO_STYLES[style] || STUDIO_STYLES.sol; // (anciens réglages « studio » -> sol)
   // fond uni blanc + vêtement très clair : il disparaîtrait -> gris clair
   if (st === STUDIO_STYLES.blanc && meanLight(px.data) > 170) st = STUDIO_STYLES.gris;
-  if (st.floor) drawFloor(ctx, W, H, await loadTexture(st.texture)); else drawFlat(ctx, W, H, st);
+  if (floorImage) { st = { floor: true }; drawFloor(ctx, W, H, floorImage); } // un de « Mes sols »
+  else if (st.floor) drawFloor(ctx, W, H, await loadTexture(st.texture));
+  else drawFlat(ctx, W, H, st);
   // ombres : une version sombre de la couleur du sol (une vraie ombre n'est jamais noire pure)
   const [fr, fg, fb] = floorTone(ctx, W, H);
   const shade = `rgb(${Math.round(fr * 0.28)},${Math.round(fg * 0.26)},${Math.round(fb * 0.24)})`;
@@ -348,4 +350,42 @@ export async function studioPhoto(blob, { style = "sol", onProgress } = {}) {
   // 4. l'article
   ctx.drawImage(sized, dx, dy);
   return new Promise((res) => c.toBlob(res, "image/jpeg", 0.92));
+}
+
+// ---------- « Mes sols » : ta propre photo de sol ----------
+/**
+ * Prépare une photo de sol prise chez toi : recadrage au format Vinted (4:5) et lumière rendue homogène
+ * (une photo prise au téléphone est souvent plus sombre dans les coins ou d'un côté).
+ */
+export async function prepareFloorPhoto(file) {
+  let img;
+  try { img = await createImageBitmap(file, { imageOrientation: "from-image" }); }
+  catch { throw new Error("Photo de sol illisible (format non supporté par ce navigateur)."); }
+  const W = 1200, H = 1500;
+  // recadrage « cover » au centre
+  const scale = Math.max(W / img.width, H / img.height);
+  const sw = W / scale, sh = H / scale, sx = (img.width - sw) / 2, sy = (img.height - sh) / 2;
+  const c = document.createElement("canvas"); c.width = W; c.height = H;
+  const ctx = c.getContext("2d", { willReadFrequently: true });
+  ctx.imageSmoothingQuality = "high";
+  ctx.drawImage(img, sx, sy, sw, sh, 0, 0, W, H);
+  img.close?.();
+  // version très floue = la lumière seule ; on divise par elle pour égaliser l'éclairage
+  const blur = document.createElement("canvas"); blur.width = W / 8; blur.height = H / 8;
+  const bctx = blur.getContext("2d", { willReadFrequently: true });
+  bctx.filter = "blur(12px)";
+  bctx.drawImage(c, -20, -20, blur.width + 40, blur.height + 40);
+  const big = document.createElement("canvas"); big.width = W; big.height = H;
+  const gctx = big.getContext("2d", { willReadFrequently: true });
+  gctx.imageSmoothingQuality = "high";
+  gctx.drawImage(blur, 0, 0, W, H);
+  const px = ctx.getImageData(0, 0, W, H), lp = gctx.getImageData(0, 0, W, H).data, d = px.data;
+  let mean = 0; for (let i = 0; i < lp.length; i += 4) mean += (lp[i] + lp[i + 1] + lp[i + 2]) / 3; mean /= lp.length / 4;
+  for (let i = 0; i < d.length; i += 4) {
+    const l = Math.max(20, (lp[i] + lp[i + 1] + lp[i + 2]) / 3);
+    const k = 0.25 + 0.75 * (mean / l); // on garde 25 % de la lumière d'origine, pour rester naturel
+    d[i] = d[i] * k; d[i + 1] = d[i + 1] * k; d[i + 2] = d[i + 2] * k;
+  }
+  ctx.putImageData(px, 0, 0);
+  return new Promise((res) => c.toBlob(res, "image/jpeg", 0.88));
 }

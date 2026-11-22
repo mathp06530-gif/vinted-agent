@@ -1,6 +1,6 @@
 // Stockage en ligne (Supabase) : annonces, photos, réglages. Synchronisé sur tous tes appareils.
 import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/+esm";
-import { SUPABASE_URL, SUPABASE_KEY } from "../config.js?v=32";
+import { SUPABASE_URL, SUPABASE_KEY } from "../config.js?v=33";
 
 export const configured = Boolean(SUPABASE_URL && SUPABASE_KEY);
 export const sb = configured ? createClient(SUPABASE_URL, SUPABASE_KEY, {

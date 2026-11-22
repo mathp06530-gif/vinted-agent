@@ -1,0 +1,7 @@
+name = "vinted-agent-ia"
+main = "worker.js"
+compatibility_date = "2025-06-01"
+
+# accès à l'IA de Cloudflare (Workers AI)
+[ai]
+binding = "AI"

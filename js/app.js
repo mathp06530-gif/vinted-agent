@@ -1,7 +1,7 @@
-import * as store from "./store.js?v=32";
-import { generate, VISION_MODELS, TEXT_MODELS, MAX_IMAGES, LOCKABLE } from "./agent.js?v=32";
-import { toJpeg, makeSheets, blobToBase64, studioPhoto } from "./images.js?v=32";
-import { allBrands } from "./brands.js?v=32";
+import * as store from "./store.js?v=33";
+import { generate, VISION_MODELS, TEXT_MODELS, MAX_IMAGES, LOCKABLE } from "./agent.js?v=33";
+import { toJpeg, makeSheets, blobToBase64, studioPhoto, prepareFloorPhoto, STUDIO_STYLES } from "./images.js?v=33";
+import { allBrands } from "./brands.js?v=33";
 
 const $ = (s) => document.querySelector(s);
 const STATUS_LABEL = { brouillon: "À vérifier", prete: "Prête", publiee: "Publiée", vendue: "Vendue" };
@@ -363,10 +363,12 @@ async function studioize(listingId) {
   if (!todo.length) { if (current?.id === listingId) toast("Toutes les photos ont déjà le fond studio."); return; }
   const job = { done: 0, total: todo.length, errors: 0 };
   studioJobs.set(listingId, job); renderStudio();
+  let floorOpt = { style: cfg.studio_style };
+  try { floorOpt = await floorOption(); } catch { /* sol perso illisible : on garde le sol intégré */ }
   for (const path of todo) {
     try {
       const out = await studioPhoto(await store.downloadPhoto(path), {
-        style: cfg.studio_style, onProgress: (t) => { job.text = t; renderStudio(); },
+        ...floorOpt, onProgress: (t) => { job.text = t; renderStudio(); },
       });
       const np = await store.uploadPhoto(out);
       L = await store.getListing(listingId); // version fraîche : tu as pu modifier la fiche entre-temps
@@ -674,6 +676,90 @@ $("#btn-ext-publish").addEventListener("click", () => guard(async () => {
   toast(`Vinted s'ouvre et se remplit (${res.photos} photo${res.photos > 1 ? "s" : ""})… Vérifie puis clique sur « Ajouter ».`, 8000);
 }));
 
+// ---------- Mes sols ----------
+const floorBitmaps = new Map();
+async function floorOption() {
+  const st = cfg.studio_style || "sol";
+  if (!st.startsWith("custom:")) return { style: st };
+  const path = st.slice(7);
+  if (!floorBitmaps.has(path)) floorBitmaps.set(path, await createImageBitmap(await store.downloadPhoto(path)));
+  return { style: "custom", floorImage: floorBitmaps.get(path) };
+}
+function fillFloorSelect(selected) {
+  const sel = $("#s-studio_style");
+  sel.querySelectorAll("option[data-custom]").forEach((o) => o.remove());
+  (cfg.floors || []).forEach((f) => {
+    const o = document.createElement("option");
+    o.value = `custom:${f.path}`; o.textContent = `⭐ ${f.name}`; o.dataset.custom = "1";
+    sel.insertBefore(o, sel.firstChild);
+  });
+  sel.value = selected || cfg.studio_style || "sol";
+  if (!sel.value) sel.value = "sol";
+}
+async function renderFloors() {
+  const floors = cfg.floors || [];
+  const urls = floors.length ? await store.photoUrls(floors.map((f) => f.path)) : {};
+  const chosen = $("#s-studio_style").value;
+  $("#my-floors").innerHTML = floors.length ? floors.map((f) => `
+    <div class="floor ${chosen === "custom:" + f.path ? "on" : ""}" data-path="${esc(f.path)}" title="Utiliser ce sol">
+      <img src="${urls[f.path] || ""}" alt=""><span>${esc(f.name)}</span>
+      <button type="button" class="ghost small" data-del-floor="${esc(f.path)}" title="Retirer">✕</button>
+    </div>`).join("") : '<small class="muted">Aucun sol à toi pour l\'instant.</small>';
+  const cfOk = Boolean(($("#s-cf_url").value || cfg.cf_url) && ($("#s-cf_key").value || cfg.cf_key));
+  $("#btn-ai-floor").disabled = !cfOk;
+  $("#ai-floor-help").textContent = cfOk
+    ? "Environ 50 sols par jour gratuits. Décris une surface vue du dessus, sans objet."
+    : "Pas encore relié : il faut un compte Cloudflare gratuit (voir avec Claude).";
+}
+async function addFloor(blob, name) {
+  const path = await store.uploadPhoto(await prepareFloorPhoto(blob));
+  const floors = [...(cfg.floors || []), { path, name }];
+  cfg = { ...cfg, floors, studio_style: `custom:${path}` };
+  await store.saveSettings(cfg);
+  fillFloorSelect(cfg.studio_style); await renderFloors();
+}
+$("#floor-add").addEventListener("change", (e) => guard(async () => {
+  const f = e.target.files[0]; e.target.value = ""; if (!f) return;
+  toast("Préparation de ton sol…");
+  await addFloor(f, `Mon sol ${(cfg.floors || []).length + 1}`);
+  toast("Ton sol est enregistré et choisi ✨");
+}));
+$("#my-floors").addEventListener("click", (e) => guard(async () => {
+  const del = e.target.closest("[data-del-floor]");
+  if (del) {
+    e.stopPropagation();
+    if (!confirm("Retirer ce sol ?")) return;
+    const path = del.dataset.delFloor;
+    const floors = (cfg.floors || []).filter((f) => f.path !== path);
+    cfg = { ...cfg, floors, studio_style: cfg.studio_style === `custom:${path}` ? "sol" : cfg.studio_style };
+    await store.saveSettings(cfg); store.removePhoto(path); floorBitmaps.delete(path);
+    fillFloorSelect(cfg.studio_style); return renderFloors();
+  }
+  const card = e.target.closest(".floor"); if (!card) return;
+  $("#s-studio_style").value = `custom:${card.dataset.path}`;
+  renderFloors();
+}));
+$("#s-studio_style").addEventListener("change", renderFloors);
+["#s-cf_url", "#s-cf_key"].forEach((id) => $(id).addEventListener("input", renderFloors));
+
+// Sol généré par l'IA gratuite de Cloudflare (via ton relais)
+$("#btn-ai-floor").addEventListener("click", () => guard(async () => {
+  const prompt = $("#ai-floor-prompt").value.trim();
+  if (!prompt) return toast("Décris le sol voulu (ex : parquet en chêne clair).");
+  const url = $("#s-cf_url").value.trim() || cfg.cf_url, key = $("#s-cf_key").value.trim() || cfg.cf_key;
+  const btn = $("#btn-ai-floor"); btn.disabled = true; btn.textContent = "Génération…";
+  try {
+    const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json", "X-Key": key }, body: JSON.stringify({
+      prompt: `top-down flat lay photograph of an empty ${prompt}, seamless surface filling the whole frame, soft natural daylight, realistic texture, high detail, no objects, no text, no shadows of objects`,
+    }) });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok || !data.image) throw new Error(data.error || `le relais a répondu ${r.status}`);
+    const blob = await (await fetch(`data:image/jpeg;base64,${data.image}`)).blob();
+    await addFloor(blob, prompt.slice(0, 30));
+    toast("Sol généré et choisi ✨");
+  } finally { btn.disabled = false; btn.textContent = "Générer"; renderFloors(); }
+}));
+
 // ---------- réglages ----------
 const SET_FIELDS = ["groq_vision_model", "groq_text_model", "style", "marge_prix", "emojis", "tutoiement", "signature", "studio_style"];
 const opts = (o) => Object.entries(o).map(([k, v]) => `<option value="${k}">${esc(v)}</option>`).join("");
@@ -684,6 +770,10 @@ $("#btn-settings").addEventListener("click", () => {
   $("#s-hashtags").checked = cfg.hashtags !== false;
   $("#s-double_check").checked = cfg.double_check !== false;
   $("#s-studio_auto").checked = cfg.studio_auto !== false;
+  fillFloorSelect(cfg.studio_style);
+  $("#s-cf_url").value = cfg.cf_url || ""; $("#s-cf_key").value = "";
+  $("#s-cf_key").placeholder = cfg.cf_key ? "configuré (laisse vide pour garder)" : "";
+  renderFloors();
   $("#s-groq_api_key").value = "";
   $("#gkey-state").textContent = cfg.groq_api_key ? `configurée (…${cfg.groq_api_key.slice(-4)})` : "pas encore configurée";
   $("#settings").showModal();
@@ -695,6 +785,8 @@ $("#btn-set-save").addEventListener("click", () => guard(async () => {
   next.hashtags = $("#s-hashtags").checked;
   next.double_check = $("#s-double_check").checked;
   next.studio_auto = $("#s-studio_auto").checked;
+  next.cf_url = $("#s-cf_url").value.trim();
+  if ($("#s-cf_key").value.trim()) next.cf_key = $("#s-cf_key").value.trim();
   const k = $("#s-groq_api_key").value.trim();
   if (k) next.groq_api_key = k;
   await store.saveSettings(next);
