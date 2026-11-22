@@ -23,8 +23,7 @@ export default {
     try {
       const out = await env.AI.run("@cf/black-forest-labs/flux-1-schnell", {
         prompt,
-        steps: 8, // le maximum : meilleure qualité
-        seed: Math.floor(Math.random() * 1e9),
+        steps: 8, // le maximum : meilleure qualité (le paramètre « seed » est refusé par le modèle)
       });
       if (!out?.image) return json({ error: "Pas d'image renvoyée par le modèle." }, 502);
       return json({ image: out.image }); // JPEG en base64
