@@ -204,3 +204,17 @@ dialog { overflow-x: hidden; overscroll-behavior: contain; }
 .top-actions { flex: 0 0 auto; margin-left: auto; }
 #brands-dlg h2 small { display: block; font-size: 12px; font-weight: 400; color: var(--muted); margin-top: 2px; }
 html, body { overflow-x: hidden; }
+
+/* --- fond studio --- */
+.photo-tools { margin: 4px 0 10px; flex-wrap: wrap; align-items: center; }
+.photo-tools .add-photos { margin: 0; }
+.studio-progress { margin: 0 0 12px; }
+.studio-progress .bar { height: 6px; border-radius: 99px; background: var(--line); overflow: hidden; }
+.studio-progress .bar span { display: block; height: 100%; width: 0; background: var(--accent); transition: width .4s; }
+.studio-progress small { color: var(--muted); font-size: 12px; }
+
+/* --- extension Chrome --- */
+.ext-box { margin: 8px 0 10px; }
+.ext-box small { display: block; color: var(--muted); margin-top: 6px; }
+details.ext-box summary { cursor: pointer; font-weight: 600; }
+details.ext-box ol { margin-top: 8px; }

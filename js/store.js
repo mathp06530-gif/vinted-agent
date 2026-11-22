@@ -1,6 +1,6 @@
 // Stockage en ligne (Supabase) : annonces, photos, réglages. Synchronisé sur tous tes appareils.
 import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/+esm";
-import { SUPABASE_URL, SUPABASE_KEY } from "../config.js?v=22";
+import { SUPABASE_URL, SUPABASE_KEY } from "../config.js?v=24";
 
 export const configured = Boolean(SUPABASE_URL && SUPABASE_KEY);
 export const sb = configured ? createClient(SUPABASE_URL, SUPABASE_KEY, {
@@ -51,7 +51,9 @@ export async function updateListing(id, fields) {
   return data;
 }
 export async function deleteListing(listing) {
-  if (listing.photos?.length) await sb.storage.from(BUCKET).remove(listing.photos);
+  // photos de l'annonce + originaux gardés à côté des versions « fond studio »
+  const files = [...(listing.photos || []), ...Object.values(listing.manual?._originals || {})];
+  if (files.length) await sb.storage.from(BUCKET).remove([...new Set(files)]);
   const { error } = await sb.from("listings").delete().eq("id", listing.id);
   fail(error);
 }

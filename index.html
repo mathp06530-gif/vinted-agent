@@ -11,7 +11,7 @@
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png?v=2">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Vinted Agent">
-<link rel="stylesheet" href="style.css?v=22">
+<link rel="stylesheet" href="style.css?v=24">
 </head>
 <body>
 <header class="top">
@@ -114,7 +114,12 @@
     </div>
 
     <div class="ed-photos" id="ed-photos"></div>
-    <label class="ghost small add-photos">+ Ajouter des photos<input type="file" id="ed-add" accept="image/*" multiple hidden></label>
+    <div class="row photo-tools">
+      <label class="ghost small add-photos">+ Ajouter des photos<input type="file" id="ed-add" accept="image/*" multiple hidden></label>
+      <button type="button" class="small" id="btn-studio">✨ Fond studio</button>
+      <button type="button" class="ghost small" id="btn-originals" hidden>↩ Photos d'origine</button>
+    </div>
+    <div class="studio-progress" id="studio-progress" hidden><div class="bar"><span id="studio-bar"></span></div><small id="studio-text"></small></div>
 
     <div class="agent-box" id="agent-box" hidden>
       <p id="agent-msg"></p>
@@ -174,6 +179,20 @@
 
     <div class="publish-help" id="publish-help" hidden>
       <b>Publier sur Vinted</b>
+      <div class="ext-box" id="ext-on" hidden>
+        <button type="button" class="primary" id="btn-ext-publish">🚀 Remplir sur Vinted</button>
+        <small>Ouvre Vinted et remplit tout (photos, titre, description, prix, catégorie, marque, taille, état). Tu vérifies, tu cliques sur « Ajouter », et l'annonce passe ici en « Publiée » toute seule.</small>
+      </div>
+      <details class="ext-box" id="ext-off">
+        <summary>Sur ordinateur : remplir Vinted automatiquement avec l'extension Chrome</summary>
+        <ol>
+          <li><a href="extension.zip" download class="btn">Télécharger l'extension</a> puis décompresse le fichier.</li>
+          <li>Dans Chrome, ouvre <code>chrome://extensions</code> et active le <b>Mode développeur</b> (en haut à droite).</li>
+          <li>Clique sur <b>Charger l'extension non empaquetée</b> et choisis le dossier décompressé.</li>
+          <li>Recharge cette page : le bouton « 🚀 Remplir sur Vinted » apparaît.</li>
+        </ol>
+      </details>
+      <p class="hint">Ou à la main (téléphone) :</p>
       <ol>
         <li><button type="button" id="btn-share">Enregistrer / partager les photos</button></li>
         <li>Copie le titre et la description (boutons « Copier » plus haut)</li>
@@ -213,6 +232,9 @@
         <select id="s-tutoiement"><option value="true">Tutoiement</option><option value="false">Vouvoiement</option></select></div>
     </div>
     <div class="field"><label><span><input type="checkbox" id="s-hashtags"> Ajouter des hashtags</span></label></div>
+    <div class="field"><label><span><input type="checkbox" id="s-studio_auto"> Fond studio automatique sur les nouvelles photos</span></label>
+      <small>Détoure le vêtement et le pose sur un fond de studio, pendant que tu relis l'annonce (environ 15 s par photo). Les originaux sont gardés.</small></div>
+    <div class="field"><label>Fond studio</label><select id="s-studio_style"><option value="blanc">Blanc studio</option><option value="gris">Gris clair</option><option value="beige">Beige doux</option></select></div>
     <div class="field"><label><span><input type="checkbox" id="s-double_check"> Double vérification quand l'agent hésite</span></label>
       <small>Il relit les photos pour confirmer la marque, le modèle ou la taille. Plus fiable, mais jusqu'à 1 minute de plus dans ces cas-là (limite gratuite de Groq).</small></div>
     <div class="field"><label>Ta phrase de fin habituelle</label>
@@ -228,6 +250,6 @@
 <div class="toast" id="toast"></div>
 <div class="busy" id="busy" hidden><div class="spin"></div><p id="busy-text">L'agent regarde tes photos…</p></div>
 
-<script type="module" src="js/app.js?v=22"></script>
+<script type="module" src="js/app.js?v=24"></script>
 </body>
 </html>

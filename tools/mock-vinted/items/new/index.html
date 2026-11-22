@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="fr"><head><meta charset="utf-8"><title>Mock Vinted – Vendre un article</title>
+<style>
+  body { font: 15px system-ui; max-width: 640px; margin: 20px auto; }
+  .field { margin: 12px 0; } label { display: block; font-weight: 600; }
+  input, textarea { width: 100%; padding: 8px; }
+  .dd { position: relative; } .dd ul { list-style: none; border: 1px solid #ccc; padding: 0; margin: 0; }
+  .dd li { padding: 6px 10px; cursor: pointer; } .dd li:hover { background: #eee; }
+  [hidden] { display: none !important; }
+</style></head>
+<body>
+<h1>Vendre un article (page de test)</h1>
+<div class="field"><label>Photos</label><input type="file" accept="image/*" multiple data-testid="add-photos-input"><div id="thumbs"></div></div>
+<div class="field"><label for="title">Titre</label><input id="title" name="title" data-testid="title--input"></div>
+<div class="field"><label for="description">Décris ton article</label><textarea id="description" name="description" data-testid="description--input"></textarea></div>
+<div class="field dd" data-kind="catalog"><label>Catégorie</label><input readonly placeholder="Sélectionne une catégorie" data-testid="catalog-select-dropdown-input"><ul hidden></ul></div>
+<div class="field dd" data-kind="brand"><label>Marque</label><input readonly placeholder="Marque" data-testid="brand-select-dropdown-input"><div class="pop" hidden><input type="text" placeholder="Rechercher une marque"><ul></ul></div></div>
+<div class="field dd" data-kind="size"><label>Taille</label><input readonly placeholder="Taille" data-testid="size-select-dropdown-input"><ul hidden></ul></div>
+<div class="field dd" data-kind="status"><label>État</label><input readonly placeholder="État" data-testid="condition-select-dropdown-input"><ul hidden></ul></div>
+<div class="field dd" data-kind="color"><label>Couleur</label><input readonly placeholder="Couleur" data-testid="color-select-dropdown-input"><ul hidden></ul></div>
+<div class="field"><label for="price">Prix</label><input id="price" name="price" data-testid="price-input--input"></div>
+<button id="add">Ajouter</button>
+<script>
+  const TREE = { Femmes: { Vêtements: ["Robes"] }, Hommes: { Chaussures: ["Baskets", "Bottes"], "Manteaux et vestes": ["Doudounes"] } };
+  const LISTS = { size: ["41", "42", "43", "44"], status: ["Neuf avec étiquette", "Neuf sans étiquette", "Très bon état", "Bon état", "Satisfaisant"],
+    color: ["Noir", "Blanc", "Multicolore", "Bleu"], brand: ["Nike", "Nike ACG", "Adidas", "New Balance"] };
+  document.querySelector("input[type=file]").addEventListener("change", (e) => { document.getElementById("thumbs").textContent = e.target.files.length + " photo(s) reçue(s)"; });
+  for (const dd of document.querySelectorAll(".dd")) {
+    const kind = dd.dataset.kind, trigger = dd.querySelector("input[readonly]");
+    const ul = dd.querySelector("ul"), pop = dd.querySelector(".pop");
+    let path = [];
+    const render = (items) => { ul.innerHTML = items.map((t) => `<li role="option">${t}</li>`).join(""); };
+    trigger.addEventListener("click", () => {
+      path = [];
+      if (kind === "catalog") { render(Object.keys(TREE)); ul.hidden = false; }
+      else if (kind === "brand") { pop.hidden = false; render(LISTS.brand); pop.querySelector("input").focus(); }
+      else { render(LISTS[kind]); ul.hidden = false; }
+    });
+    pop?.querySelector("input").addEventListener("input", (e) => render(LISTS.brand.filter((b) => b.toLowerCase().includes(e.target.value.toLowerCase()))));
+    ul.addEventListener("click", (e) => {
+      const li = e.target.closest("li"); if (!li) return;
+      if (kind === "catalog") {
+        path.push(li.textContent);
+        let node = TREE; for (const p of path) node = node[p];
+        if (node === undefined || path.length === 3) { trigger.value = path.join(" > "); ul.hidden = true; }
+        else render(Array.isArray(node) ? node : Object.keys(node));
+      } else { trigger.value = li.textContent; ul.hidden = true; if (pop) pop.hidden = true; }
+    });
+  }
+</script>
+</body></html>

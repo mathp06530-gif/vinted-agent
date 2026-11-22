@@ -1,0 +1,24 @@
+{
+  "manifest_version": 3,
+  "name": "Vinted Agent – remplissage d'annonce",
+  "short_name": "Vinted Agent",
+  "version": "1.0.0",
+  "description": "Remplit le formulaire « Vendre un article » de Vinted avec une annonce préparée dans Vinted Agent. Tu vérifies et tu cliques sur « Ajouter ».",
+  "icons": { "16": "icons/16.png", "48": "icons/48.png", "128": "icons/128.png" },
+  "action": { "default_title": "Vinted Agent", "default_icon": { "16": "icons/16.png", "48": "icons/48.png" } },
+  "background": { "service_worker": "background.js" },
+  "permissions": ["storage"],
+  "host_permissions": ["https://*.supabase.co/*", "https://www.vinted.fr/*"],
+  "content_scripts": [
+    {
+      "matches": ["https://mathp06530-gif.github.io/vinted-agent/*", "http://localhost:5051/*"],
+      "js": ["app-bridge.js"],
+      "run_at": "document_start"
+    },
+    {
+      "matches": ["https://www.vinted.fr/*"],
+      "js": ["vinted-fill.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}

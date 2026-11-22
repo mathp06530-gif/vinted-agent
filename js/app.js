@@ -1,14 +1,14 @@
-import * as store from "./store.js?v=22";
-import { generate, VISION_MODELS, TEXT_MODELS, MAX_IMAGES, LOCKABLE } from "./agent.js?v=22";
-import { toJpeg, makeSheets, blobToBase64 } from "./images.js?v=22";
-import { allBrands } from "./brands.js?v=22";
+import * as store from "./store.js?v=24";
+import { generate, VISION_MODELS, TEXT_MODELS, MAX_IMAGES, LOCKABLE } from "./agent.js?v=24";
+import { toJpeg, makeSheets, blobToBase64, studioPhoto } from "./images.js?v=24";
+import { allBrands } from "./brands.js?v=24";
 
 const $ = (s) => document.querySelector(s);
 const STATUS_LABEL = { brouillon: "À vérifier", prete: "Prête", publiee: "Publiée", vendue: "Vendue" };
 const FIELDS = ["title", "description", "hashtags", "gender", "brand", "model", "category", "size", "condition", "color", "material", "price", "hints"];
 const DEFAULT_SETTINGS = {
   groq_api_key: "", groq_vision_model: Object.keys(VISION_MODELS)[0], groq_text_model: "openai/gpt-oss-120b",
-  tutoiement: true, emojis: "rare", hashtags: true, double_check: true, signature: "", style: "naturel", marge_prix: "normal",
+  tutoiement: true, emojis: "rare", hashtags: true, double_check: true, studio_auto: true, studio_style: "blanc", signature: "", style: "naturel", marge_prix: "normal",
 };
 let cfg = { ...DEFAULT_SETTINGS };
 let items = [];
@@ -170,7 +170,8 @@ async function uploadFiles(files, onProgress) {
 }
 
 async function runAgent(listing, blobs, extraHints, onStep) {
-  if (!blobs) blobs = await Promise.all(listing.photos.map(store.downloadPhoto));
+  const originals = listing.manual?._originals || {};
+  if (!blobs) blobs = await Promise.all(listing.photos.map((p) => store.downloadPhoto(originals[p] || p)));
   // photos marquées 🏷️ (étiquettes) : envoyées seules et en grand (2 max), le reste regroupé
   const labels = listing.manual?._labels || [];
   const labelIdx = listing.photos.map((p, i) => (labels.includes(p) ? i : -1)).filter((i) => i >= 0).slice(0, 2);
@@ -217,7 +218,8 @@ $("#btn-create").addEventListener("click", async () => {
       agentErrors.delete(item.id);
       toast("Annonce prête à vérifier");
     } catch (e) { agentErrors.set(item.id, e.message); } // affiché dans la fiche
-    tab = "brouillon"; await refresh(); busy(false); openEditor(item.id);
+    tab = "brouillon"; await refresh(); busy(false); await openEditor(item.id);
+    if (cfg.studio_auto !== false) studioize(item.id); // en arrière-plan, pendant que tu relis
   } catch (e) { toast(e.message, 7000); }
   busy(false);
   delete btn.dataset.busy;
@@ -303,9 +305,12 @@ async function fillEditor() {
   const fake = c.authenticity === "fausse";
   $("#btn-next").hidden = fake && ["brouillon", "prete"].includes(c.status);
   $("#publish-help").hidden = fake || c.status !== "prete";
+  $("#ext-on").hidden = !extensionReady;
+  $("#ext-off").hidden = extensionReady || /Android|iPhone|iPad/i.test(navigator.userAgent);
   if (fake) $("#ed-hint").textContent = "Contrefaçon : ne la publie pas sur Vinted (interdit, risque de blocage du compte).";
   renderAuthBox();
   renderLocks();
+  renderStudio();
 }
 
 // ---------- authenticité ----------
@@ -335,6 +340,64 @@ async function setVerdict(verdict) {
 }
 $("#btn-auth-real").addEventListener("click", () => setVerdict("authentique"));
 $("#btn-auth-fake").addEventListener("click", () => setVerdict("fausse"));
+
+// ---------- fond studio ----------
+const studioJobs = new Map(); // id annonce -> { done, total, text }
+function renderStudio() {
+  if (!current) return;
+  const job = studioJobs.get(current.id);
+  $("#studio-progress").hidden = !job;
+  $("#btn-studio").disabled = Boolean(job);
+  $("#btn-originals").hidden = Boolean(job) || !Object.keys(current.manual?._originals || {}).some((p) => current.photos.includes(p));
+  if (job) {
+    $("#studio-bar").style.width = `${Math.round((100 * job.done) / job.total)}%`;
+    $("#studio-text").textContent = job.text || `Fond studio : photo ${Math.min(job.done + 1, job.total)} sur ${job.total}… (tu peux continuer à relire)`;
+  }
+}
+async function studioize(listingId) {
+  if (studioJobs.has(listingId)) return;
+  let L = await store.getListing(listingId);
+  const labels = L.manual?._labels || [];
+  const done0 = L.manual?._originals || {};
+  const todo = L.photos.filter((p) => !done0[p] && !labels.includes(p)); // jamais les photos d'étiquette
+  if (!todo.length) { if (current?.id === listingId) toast("Toutes les photos ont déjà le fond studio."); return; }
+  const job = { done: 0, total: todo.length, errors: 0 };
+  studioJobs.set(listingId, job); renderStudio();
+  for (const path of todo) {
+    try {
+      const out = await studioPhoto(await store.downloadPhoto(path), {
+        style: cfg.studio_style, onProgress: (t) => { job.text = t; renderStudio(); },
+      });
+      const np = await store.uploadPhoto(out);
+      L = await store.getListing(listingId); // version fraîche : tu as pu modifier la fiche entre-temps
+      if (!L.photos.includes(path)) { store.removePhoto(np); continue; } // photo retirée pendant le travail
+      const photos = L.photos.map((x) => (x === path ? np : x));
+      const manual = { ...(L.manual || {}), _originals: { ...(L.manual?._originals || {}), [np]: path } };
+      L = await store.updateListing(listingId, { photos, manual });
+      if (current?.id === listingId) { current = { ...current, photos: L.photos, manual: L.manual }; await renderPhotos(); }
+    } catch (e) {
+      job.errors++; job.lastError = e.message;
+    } finally {
+      job.done++; job.text = ""; renderStudio();
+    }
+  }
+  studioJobs.delete(listingId);
+  renderStudio(); refresh();
+  toast(job.errors
+    ? `Fond studio : ${job.total - job.errors} photo(s) sur ${job.total}. ${job.lastError}`
+    : "Fond studio appliqué ✨", job.errors ? 7000 : 3500);
+}
+$("#btn-studio").addEventListener("click", () => current && studioize(current.id));
+$("#btn-originals").addEventListener("click", () => guard(async () => {
+  const orig = current.manual?._originals || {};
+  const studio = Object.keys(orig).filter((p) => current.photos.includes(p));
+  if (!studio.length) return;
+  if (!confirm("Remettre les photos d'origine (sans le fond studio) ?")) return;
+  const photos = current.photos.map((p) => orig[p] || p);
+  current = await store.updateListing(current.id, { photos, manual: { ...(current.manual || {}), _originals: {} } });
+  studio.forEach((p) => store.removePhoto(p));
+  await renderPhotos(); renderStudio(); refresh(); toast("Photos d'origine remises");
+}));
 
 async function renderPhotos() {
   const ph = current.photos;
@@ -369,8 +432,11 @@ $("#ed-photos").addEventListener("click", (e) => guard(async () => {
   } else if (b.dataset.del !== undefined) {
     if (!confirm("Retirer cette photo ?")) return;
     const [removed] = photos.splice(+b.dataset.del, 1);
-    current = await store.updateListing(current.id, { photos });
+    const orig = { ...(current.manual?._originals || {}) };
+    const original = orig[removed]; delete orig[removed];
+    current = await store.updateListing(current.id, { photos, manual: { ...(current.manual || {}), _originals: orig } });
     store.removePhoto(removed);
+    if (original) store.removePhoto(original);
   } else {
     const i = +b.dataset.move, j = i + +b.dataset.dir;
     [photos[i], photos[j]] = [photos[j], photos[i]];
@@ -557,8 +623,59 @@ $("#btn-brand-save").addEventListener("click", () => guard(async () => {
   $("#b-name").value = ""; $("#b-cues").value = ""; $("#b-search").value = name; renderBrands();
 }));
 
+// ---------- extension Chrome ----------
+let extensionReady = false;
+const extWaiters = new Map();
+window.addEventListener("message", (e) => {
+  if (e.source !== window || e.origin !== location.origin || e.data?.source !== "vinted-agent-extension") return;
+  const d = e.data;
+  if (d.type === "ready" && !extensionReady) {
+    extensionReady = true;
+    if (current) fillEditor();
+    takePublished();
+  }
+  if (d.type === "publish-result") { extWaiters.get(d.requestId)?.(d); extWaiters.delete(d.requestId); }
+  if (d.type === "published") applyPublished(d.published || []);
+});
+const toExtension = (msg) => window.postMessage({ source: "vinted-agent-app", ...msg }, location.origin);
+toExtension({ type: "ping" });
+function takePublished() { if (extensionReady) toExtension({ type: "takePublished" }); }
+document.addEventListener("visibilitychange", () => { if (!document.hidden) takePublished(); });
+
+// annonces publiées sur Vinted pendant que tu y étais : on les passe en « Publiée » avec le lien
+async function applyPublished(list) {
+  for (const p of list) {
+    await guard(async () => {
+      const L = await store.updateListing(p.id, { status: "publiee", vinted_url: p.url });
+      if (current?.id === p.id) { current = L; await fillEditor(); }
+      toast(`« ${L.title || "Annonce"} » publiée sur Vinted ✅`, 5000);
+    });
+  }
+  if (list.length) refresh();
+}
+
+$("#btn-ext-publish").addEventListener("click", () => guard(async () => {
+  await save(true);
+  const c = current;
+  const urls = await store.photoUrls(c.photos);
+  const listing = {
+    id: c.id, title: c.title, price: c.price, category: c.category, brand: c.brand, size: c.size,
+    condition: c.condition, color: c.color,
+    description: [c.description, c.hashtags].filter(Boolean).join("\n\n"),
+    photoUrls: c.photos.map((p) => urls[p]).filter(Boolean),
+  };
+  const requestId = Math.random().toString(36).slice(2);
+  const res = await new Promise((resolve) => {
+    extWaiters.set(requestId, resolve);
+    toExtension({ type: "publish", listing, requestId });
+    setTimeout(() => resolve({ ok: false, error: "l'extension ne répond pas" }), 60000);
+  });
+  if (!res.ok) throw new Error(`Extension : ${res.error || "erreur"}`);
+  toast(`Vinted s'ouvre et se remplit (${res.photos} photo${res.photos > 1 ? "s" : ""})… Vérifie puis clique sur « Ajouter ».`, 8000);
+}));
+
 // ---------- réglages ----------
-const SET_FIELDS = ["groq_vision_model", "groq_text_model", "style", "marge_prix", "emojis", "tutoiement", "signature"];
+const SET_FIELDS = ["groq_vision_model", "groq_text_model", "style", "marge_prix", "emojis", "tutoiement", "signature", "studio_style"];
 const opts = (o) => Object.entries(o).map(([k, v]) => `<option value="${k}">${esc(v)}</option>`).join("");
 $("#btn-settings").addEventListener("click", () => {
   $("#s-groq_vision_model").innerHTML = opts(VISION_MODELS);
@@ -566,6 +683,7 @@ $("#btn-settings").addEventListener("click", () => {
   SET_FIELDS.forEach((f) => { $(`#s-${f}`).value = String(cfg[f] ?? ""); });
   $("#s-hashtags").checked = cfg.hashtags !== false;
   $("#s-double_check").checked = cfg.double_check !== false;
+  $("#s-studio_auto").checked = cfg.studio_auto !== false;
   $("#s-groq_api_key").value = "";
   $("#gkey-state").textContent = cfg.groq_api_key ? `configurée (…${cfg.groq_api_key.slice(-4)})` : "pas encore configurée";
   $("#settings").showModal();
@@ -576,6 +694,7 @@ $("#btn-set-save").addEventListener("click", () => guard(async () => {
   next.tutoiement = next.tutoiement === "true";
   next.hashtags = $("#s-hashtags").checked;
   next.double_check = $("#s-double_check").checked;
+  next.studio_auto = $("#s-studio_auto").checked;
   const k = $("#s-groq_api_key").value.trim();
   if (k) next.groq_api_key = k;
   await store.saveSettings(next);
