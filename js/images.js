@@ -97,20 +97,218 @@ function contentBox(img) {
 }
 
 export const STUDIO_STYLES = {
-  blanc: { label: "Blanc studio", top: "#ffffff", bottom: "#ececea" },
-  gris: { label: "Gris clair", top: "#f4f4f3", bottom: "#d9d9d6" },
-  beige: { label: "Beige doux", top: "#faf6f0", bottom: "#e8dfd2" },
+  // pièce de studio en perspective (mur du fond, murs latéraux, sol)
+  studio: { label: "Studio gris anthracite", room: true, back: [86, 84, 81], side: [66, 64, 62], floorFar: [118, 115, 111], floorNear: [150, 147, 142] },
+  studio_clair: { label: "Studio gris clair", room: true, back: [150, 148, 144], side: [124, 122, 118], floorFar: [178, 175, 170], floorNear: [204, 201, 196] },
+  // fonds plats
+  blanc: { label: "Blanc", top: [250, 250, 249], bottom: [234, 234, 232] },
+  gris: { label: "Gris clair", top: [243, 243, 242], bottom: [214, 214, 211] },
+  beige: { label: "Beige doux", top: [250, 246, 240], bottom: [231, 222, 209] },
 };
 
+/** Bords propres : supprime le halo semi-transparent laissé par le détourage. */
+function cleanEdges(data) {
+  for (let i = 3; i < data.length; i += 4) {
+    const a = data[i];
+    // les zones à moitié transparentes sont des restes de fond (cintre flou, ombre du sol) : on les retire
+    // (seuil modéré : sur un vêtement clair, le détoureur est moins sûr et laisse des zones à moitié transparentes
+    //  qui font bien partie du vêtement ; les résidus isolés sont retirés ensuite par keepMainParts)
+    if (a < 36) data[i] = 0;
+    else if (a > 200) data[i] = 255;
+    else { const t = (a - 36) / 164; data[i] = Math.round(255 * Math.min(1, t * 1.25)); }
+  }
+}
+
+/** Ne garde que le vêtement : supprime les petits morceaux détachés (bout de cintre, étiquette volante, poussière). */
+function keepMainParts(data, w, h) {
+  const step = 3; // travail sur une grille réduite pour aller vite
+  const gw = Math.ceil(w / step), gh = Math.ceil(h / step);
+  const solid = new Uint8Array(gw * gh);
+  for (let gy = 0; gy < gh; gy++) for (let gx = 0; gx < gw; gx++) {
+    const x = Math.min(w - 1, gx * step), y = Math.min(h - 1, gy * step);
+    solid[gy * gw + gx] = data[(y * w + x) * 4 + 3] > 0 ? 1 : 0; // tout ce qui reste après le nettoyage des bords
+  }
+  const label = new Int32Array(gw * gh).fill(-1);
+  const sizes = [];
+  const stack = [];
+  for (let i = 0; i < solid.length; i++) {
+    if (!solid[i] || label[i] !== -1) continue;
+    const id = sizes.length; let n = 0;
+    stack.push(i); label[i] = id;
+    while (stack.length) {
+      const k = stack.pop(); n++;
+      const x = k % gw, y = (k - x) / gw;
+      for (const [nx, ny] of [[x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]]) {
+        if (nx < 0 || ny < 0 || nx >= gw || ny >= gh) continue;
+        const j = ny * gw + nx;
+        if (solid[j] && label[j] === -1) { label[j] = id; stack.push(j); }
+      }
+    }
+    sizes.push(n);
+  }
+  if (sizes.length < 2) return;
+  const biggest = Math.max(...sizes);
+  const keep = sizes.map((n) => n >= biggest * 0.04); // une paire de chaussures = 2 grands morceaux, gardés
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const id = label[Math.min(gh - 1, Math.floor(y / step)) * gw + Math.min(gw - 1, Math.floor(x / step))];
+    if (id !== -1 && !keep[id]) data[(y * w + x) * 4 + 3] = 0;
+  }
+}
+
+/** Retouche automatique du vêtement : niveaux, contraste doux, un peu de couleur. */
+function enhance(data) {
+  // histogramme de luminosité sur les pixels du vêtement seulement
+  const hist = new Uint32Array(256); let n = 0;
+  for (let i = 0; i < data.length; i += 4) {
+    if (data[i + 3] < 200) continue;
+    hist[Math.round(0.2126 * data[i] + 0.7152 * data[i + 1] + 0.0722 * data[i + 2])]++; n++;
+  }
+  if (!n) return;
+  const pick = (q) => { let acc = 0; for (let v = 0; v < 256; v++) { acc += hist[v]; if (acc >= n * q) return v; } return 255; };
+  let lo = pick(0.005), hi = pick(0.995);
+  // on n'étire pas trop : un vêtement noir doit rester noir, un blanc rester blanc
+  lo = Math.min(lo, 40); hi = Math.max(hi, 215);
+  const scale = 255 / Math.max(1, hi - lo);
+  const lut = new Uint8ClampedArray(256);
+  for (let v = 0; v < 256; v++) {
+    let x = Math.min(1, Math.max(0, ((v - lo) * scale) / 255));
+    x = x + 0.5 * (x - x * x) * (2 * x - 1); // contraste en S léger (assombrit un peu les ombres, éclaircit les lumières)
+    x = Math.pow(x, 0.94); // un peu plus lumineux
+    lut[v] = Math.round(255 * Math.min(1, Math.max(0, x)));
+  }
+  for (let i = 0; i < data.length; i += 4) {
+    if (data[i + 3] === 0) continue;
+    let r = lut[data[i]], g = lut[data[i + 1]], b = lut[data[i + 2]];
+    const l = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    r = l + (r - l) * 1.08; g = l + (g - l) * 1.08; b = l + (b - l) * 1.08; // +8 % de couleur
+    data[i] = r; data[i + 1] = g; data[i + 2] = b;
+  }
+}
+
+/** Netteté (masque flou) : rend les textures et les logos plus nets. */
+function sharpen(ctx, w, h, amount = 0.45) {
+  const src = ctx.getImageData(0, 0, w, h), d = src.data;
+  const out = new Uint8ClampedArray(d);
+  for (let y = 1; y < h - 1; y++) {
+    for (let x = 1; x < w - 1; x++) {
+      const i = (y * w + x) * 4;
+      if (d[i + 3] < 250) continue; // pas sur les bords détourés
+      for (let c = 0; c < 3; c++) {
+        const blur = (d[i - 4 + c] + d[i + 4 + c] + d[i - w * 4 + c] + d[i + w * 4 + c]) / 4;
+        out[i + c] = d[i + c] + amount * (d[i + c] - blur);
+      }
+    }
+  }
+  src.data.set(out);
+  ctx.putImageData(src, 0, 0);
+}
+
+/** Luminosité moyenne du vêtement (0 = noir, 255 = blanc). */
+function meanLight(data) {
+  let s = 0, n = 0;
+  for (let i = 0; i < data.length; i += 16) { // un pixel sur 4 suffit
+    if (data[i + 3] < 200) continue;
+    s += 0.2126 * data[i] + 0.7152 * data[i + 1] + 0.0722 * data[i + 2]; n++;
+  }
+  return n ? s / n : 128;
+}
+
+/** Fond plat (dégradé + lumière douce). */
+function drawFlat(ctx, W, H, st) {
+  const rgb = (a) => `rgb(${a.join(",")})`;
+  const g = ctx.createLinearGradient(0, 0, 0, H);
+  g.addColorStop(0, rgb(st.top)); g.addColorStop(0.55, rgb(st.top)); g.addColorStop(1, rgb(st.bottom));
+  ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+  const light = ctx.createRadialGradient(W / 2, H * 0.42, 0, W / 2, H * 0.42, W * 0.75);
+  light.addColorStop(0, "rgba(255,255,255,0.55)"); light.addColorStop(1, "rgba(255,255,255,0)");
+  ctx.fillStyle = light; ctx.fillRect(0, 0, W, H);
+}
+
 /**
- * Transforme une photo en photo « studio ».
+ * Pièce de studio en perspective : mur du fond, mur gauche, mur droit, sol.
+ * Lumière de projecteur sur le mur du fond, coins assombris, sol plus clair vers l'avant.
+ */
+function drawRoom(ctx, W, H, st) {
+  const rgb = (a, k = 1) => `rgb(${a.map((v) => Math.max(0, Math.min(255, Math.round(v * k)))).join(",")})`;
+  const L = W * 0.16, R = W * 0.84;   // bords du mur du fond
+  const horizon = H * 0.66;           // jonction mur du fond / sol
+  const sideFloor = H * 0.8;          // où les murs latéraux touchent le bord de l'image
+  const poly = (pts, fill) => { ctx.beginPath(); pts.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); ctx.closePath(); ctx.fillStyle = fill; ctx.fill(); };
+
+  // sol : plus sombre au fond, plus clair devant
+  const gf = ctx.createLinearGradient(0, horizon, 0, H);
+  gf.addColorStop(0, rgb(st.floorFar)); gf.addColorStop(1, rgb(st.floorNear));
+  poly([[L, horizon], [R, horizon], [W, sideFloor], [W, H], [0, H], [0, sideFloor]], gf);
+  // mur du fond
+  const gb = ctx.createLinearGradient(0, 0, 0, horizon);
+  gb.addColorStop(0, rgb(st.back, 0.88)); gb.addColorStop(1, rgb(st.back, 1.04));
+  poly([[L, 0], [R, 0], [R, horizon], [L, horizon]], gb);
+  // murs latéraux : plus sombres vers l'extérieur
+  const gl = ctx.createLinearGradient(0, 0, L, 0);
+  gl.addColorStop(0, rgb(st.side, 0.78)); gl.addColorStop(1, rgb(st.side, 1.05));
+  poly([[0, 0], [L, 0], [L, horizon], [0, sideFloor]], gl);
+  const gr = ctx.createLinearGradient(W, 0, R, 0);
+  gr.addColorStop(0, rgb(st.side, 0.78)); gr.addColorStop(1, rgb(st.side, 1.05));
+  poly([[R, 0], [W, 0], [W, sideFloor], [R, horizon]], gr);
+
+  // projecteur : halo de lumière sur le mur du fond, derrière l'article
+  ctx.save();
+  const spot = ctx.createRadialGradient(W / 2, H * 0.4, 0, W / 2, H * 0.4, W * 0.52);
+  spot.addColorStop(0, "rgba(255,250,242,0.30)"); spot.addColorStop(0.6, "rgba(255,250,242,0.08)"); spot.addColorStop(1, "rgba(255,250,242,0)");
+  ctx.fillStyle = spot; ctx.fillRect(0, 0, W, H);
+  // lumière qui tombe sur le sol devant l'article
+  const pool = ctx.createRadialGradient(W / 2, H * 0.86, 0, W / 2, H * 0.86, W * 0.55);
+  pool.addColorStop(0, "rgba(255,250,242,0.22)"); pool.addColorStop(1, "rgba(255,250,242,0)");
+  ctx.fillStyle = pool; ctx.fillRect(0, horizon, W, H - horizon);
+  ctx.restore();
+
+  // coins et arêtes adoucis (comme dans une vraie pièce : l'ombre s'accumule dans les angles)
+  ctx.save(); ctx.filter = "blur(14px)"; ctx.strokeStyle = "rgba(0,0,0,0.35)"; ctx.lineWidth = 16;
+  ctx.beginPath();
+  ctx.moveTo(L, 0); ctx.lineTo(L, horizon); ctx.lineTo(R, horizon); ctx.lineTo(R, 0);
+  ctx.moveTo(L, horizon); ctx.lineTo(0, sideFloor);
+  ctx.moveTo(R, horizon); ctx.lineTo(W, sideFloor);
+  ctx.stroke();
+  ctx.restore();
+  // vignettage léger
+  const v = ctx.createRadialGradient(W / 2, H * 0.55, W * 0.4, W / 2, H * 0.55, W * 1.05);
+  v.addColorStop(0, "rgba(0,0,0,0)"); v.addColorStop(1, "rgba(0,0,0,0.22)");
+  ctx.fillStyle = v; ctx.fillRect(0, 0, W, H);
+  // grain très fin, pour éviter l'aspect « dessin numérique » des aplats
+  const n = ctx.getImageData(0, 0, W, H), d = n.data;
+  for (let i = 0; i < d.length; i += 4) { const r = (Math.random() - 0.5) * 5; d[i] += r; d[i + 1] += r; d[i + 2] += r; }
+  ctx.putImageData(n, 0, 0);
+}
+
+/** Base de l'article : où il touche le sol (pour placer l'ombre de contact au bon endroit). */
+function bottomProfile(canvas) {
+  const w = canvas.width, h = canvas.height;
+  const band = Math.max(3, Math.round(h * 0.06));
+  const { data } = canvas.getContext("2d", { willReadFrequently: true }).getImageData(0, h - band, w, band);
+  let x0 = w, x1 = -1;
+  for (let y = 0; y < band; y++) for (let x = 0; x < w; x++) if (data[(y * w + x) * 4 + 3] > 140) { if (x < x0) x0 = x; if (x > x1) x1 = x; }
+  return x1 < 0 ? { x: w * 0.2, w: w * 0.6 } : { x: x0, w: x1 - x0 };
+}
+
+/** Silhouette noire du vêtement (pour les ombres). */
+function silhouette(canvas) {
+  const s = document.createElement("canvas"); s.width = canvas.width; s.height = canvas.height;
+  const x = s.getContext("2d");
+  x.drawImage(canvas, 0, 0);
+  x.globalCompositeOperation = "source-in";
+  x.fillStyle = "#000"; x.fillRect(0, 0, s.width, s.height);
+  return s;
+}
+
+/**
+ * Transforme une photo en photo « studio » : détourage, bords propres, retouche, cadrage, fond papier, ombres réalistes.
  * onProgress(texte) pour afficher l'avancement. Lance une erreur si rien n'a pu être détouré.
  */
-export async function studioPhoto(blob, { style = "blanc", onProgress } = {}) {
+export async function studioPhoto(blob, { style = "studio", onProgress } = {}) {
   const { removeBackground } = await loadBgLib();
   let lastPct = -1;
   const cut = await removeBackground(blob, {
-    output: { format: "image/png" },
+    output: { format: "image/png", quality: 1 },
     progress: (key, cur, total) => {
       if (!key.startsWith("fetch")) return;
       const pct = Math.round((100 * cur) / (total || 1));
@@ -121,33 +319,62 @@ export async function studioPhoto(blob, { style = "blanc", onProgress } = {}) {
   const box = contentBox(img);
   if (!box || box.coverage < 0.02) { img.close?.(); throw new Error("Le vêtement n'a pas pu être détouré sur cette photo."); }
 
-  const W = 1200, H = 1500; // format portrait 4:5
+  // 1. vêtement recadré, bords nettoyés, retouché
+  const pad = 2;
+  const iw = Math.round(box.w) + pad * 2, ih = Math.round(box.h) + pad * 2;
+  const item = document.createElement("canvas"); item.width = iw; item.height = ih;
+  const ictx = item.getContext("2d", { willReadFrequently: true });
+  ictx.drawImage(img, box.x - pad, box.y - pad, iw, ih, 0, 0, iw, ih);
+  img.close?.();
+  const px = ictx.getImageData(0, 0, iw, ih);
+  cleanEdges(px.data);
+  keepMainParts(px.data, iw, ih);
+  enhance(px.data);
+  ictx.putImageData(px, 0, 0);
+
+  const W = 1200, H = 1500;
   const c = document.createElement("canvas"); c.width = W; c.height = H;
   const ctx = c.getContext("2d");
-  const st = STUDIO_STYLES[style] || STUDIO_STYLES.blanc;
-  // fond : dégradé vertical + léger vignettage, comme un fond papier de studio
-  const g = ctx.createLinearGradient(0, 0, 0, H);
-  g.addColorStop(0, st.top); g.addColorStop(0.62, st.top); g.addColorStop(1, st.bottom);
-  ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
-  const v = ctx.createRadialGradient(W / 2, H * 0.45, W * 0.3, W / 2, H * 0.5, W * 0.95);
-  v.addColorStop(0, "rgba(255,255,255,0)"); v.addColorStop(1, "rgba(0,0,0,0.06)");
-  ctx.fillStyle = v; ctx.fillRect(0, 0, W, H);
+  let st = STUDIO_STYLES[style] || STUDIO_STYLES.studio;
+  // fond plat blanc + vêtement très clair : il disparaîtrait -> gris clair
+  if (st === STUDIO_STYLES.blanc && meanLight(px.data) > 170) st = STUDIO_STYLES.gris;
+  if (st.room) drawRoom(ctx, W, H, st); else drawFlat(ctx, W, H, st);
 
-  // vêtement : 82 % de la place, centré, posé un peu au-dessus du bas
-  const scale = Math.min((W * 0.82) / box.w, (H * 0.8) / box.h);
-  const dw = box.w * scale, dh = box.h * scale;
-  const dx = (W - dw) / 2, dy = (H - dh) / 2 - H * 0.01;
-  // ombre au sol : ellipse floue sous le vêtement
-  ctx.save();
-  ctx.filter = "blur(18px)";
-  ctx.fillStyle = "rgba(0,0,0,0.18)";
-  ctx.beginPath(); ctx.ellipse(W / 2, dy + dh + 10, dw * 0.42, Math.max(14, dh * 0.035), 0, 0, Math.PI * 2); ctx.fill();
+  // 2. taille et position : dans la pièce, l'article est POSÉ sur le sol (sa base touche le sol)
+  const floorY = st.room ? Math.round(H * 0.86) : Math.round(H * 0.9);
+  const maxW = W * (st.room ? 0.74 : 0.86), maxH = st.room ? floorY - H * 0.1 : H * 0.82;
+  const scale = Math.min(maxW / iw, maxH / ih);
+  const dw = Math.round(iw * scale), dh = Math.round(ih * scale);
+  const sized = document.createElement("canvas"); sized.width = dw; sized.height = dh;
+  const sctx = sized.getContext("2d", { willReadFrequently: true });
+  sctx.imageSmoothingQuality = "high";
+  sctx.drawImage(item, 0, 0, dw, dh);
+  sharpen(sctx, dw, dh);
+  const dx = Math.round((W - dw) / 2);
+  const dy = st.room ? floorY - dh : Math.round((H - dh) / 2);
+
+  // 3. ombres sur le sol
+  const sil = silhouette(sized);
+  const base = bottomProfile(sized); // où l'article touche vraiment le sol (gauche/droite de sa base)
+  // ombre portée vers l'arrière, aplatie sur le sol (lumière venant de face, un peu en hauteur)
+  ctx.save(); ctx.globalAlpha = st.room ? 0.34 : 0.14; ctx.filter = "blur(22px)";
+  // la base de l'ombre colle à la base de l'article, le haut part vers l'arrière (vers le mur)
+  ctx.setTransform(1, 0, -0.18, 0.22, dx + dh * 0.18, dy + dh - dh * 0.22);
+  ctx.drawImage(sil, 0, 0);
   ctx.restore();
-  // ombre portée douce qui suit la forme du vêtement
-  ctx.save();
-  ctx.shadowColor = "rgba(0,0,0,0.22)"; ctx.shadowBlur = 36; ctx.shadowOffsetY = 14;
-  ctx.drawImage(img, box.x, box.y, box.w, box.h, dx, dy, dw, dh);
+  // ombre de contact : bande sombre et nette exactement sous la base
+  ctx.save(); ctx.globalAlpha = st.room ? 0.6 : 0.35; ctx.filter = "blur(7px)";
+  ctx.fillStyle = "#000";
+  const cx = dx + base.x, cw = Math.max(20, base.w);
+  ctx.beginPath(); ctx.ellipse(cx + cw / 2, dy + dh - 2, cw / 2 * 1.02, Math.max(6, dh * 0.012), 0, 0, Math.PI * 2); ctx.fill();
   ctx.restore();
-  img.close?.();
-  return new Promise((res) => c.toBlob(res, "image/jpeg", 0.9));
+  // ombre douce large (lumière d'ambiance)
+  ctx.save(); ctx.globalAlpha = st.room ? 0.28 : 0.12; ctx.filter = "blur(30px)";
+  ctx.fillStyle = "#000";
+  ctx.beginPath(); ctx.ellipse(cx + cw / 2, dy + dh + 4, cw * 0.62, Math.max(14, dh * 0.035), 0, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
+
+  // 4. l'article
+  ctx.drawImage(sized, dx, dy);
+  return new Promise((res) => c.toBlob(res, "image/jpeg", 0.92));
 }

@@ -1,9 +1,10 @@
 // L'agent : Qwen (vision) regarde les photos, GPT-OSS 120B écrit l'annonce. Tout passe par Groq.
-import { SYSTEM, VISION_PROMPT } from "./prompts.js?v=24";
-import { guideFor } from "./legit.js?v=24";
-import { categoriesFor } from "./categories.js?v=24";
-import { modelsFor } from "./models.js?v=24";
-import { allBrands, matchBrand } from "./brands.js?v=24";
+import { SYSTEM, VISION_PROMPT } from "./prompts.js?v=26";
+import { guideFor } from "./legit.js?v=26";
+import { categoriesFor } from "./categories.js?v=26";
+import { modelsFor } from "./models.js?v=26";
+import { allBrands, matchBrand } from "./brands.js?v=26";
+import { lexiqueFor, stripForbidden } from "./lexique.js?v=26";
 
 const GROQ_URL = "https://api.groq.com/openai/v1/chat/completions";
 export const VISION_MODELS = { "qwen/qwen3.8-27b": "Qwen 3.8 27B (vision)" };
@@ -44,6 +45,30 @@ const ANNONCE_FORMAT = strict("annonce", {
 });
 
 export class AgentError extends Error {}
+
+// Relecteur : modèle rapide, limite gratuite séparée de celle du rédacteur
+const REVIEW_MODEL = "openai/gpt-oss-20b";
+const REVIEW_FORMAT = {
+  type: "json_schema",
+  json_schema: {
+    name: "relecture", strict: true,
+    schema: {
+      type: "object",
+      properties: { titre: { type: "string" }, description: { type: "string" }, corrections: { type: "array", items: { type: "string" } } },
+      required: ["titre", "description", "corrections"], additionalProperties: false,
+    },
+  },
+};
+const REVIEW_PROMPT = `Tu es le relecteur d'un vendeur Vinted français. On te donne les notes prises en regardant les photos, les infos du vendeur, et une annonce rédigée. Ton travail : rendre l'annonce 100 % vraie et naturelle.
+
+Règles :
+1. Chaque affirmation de la description doit être prouvée par les notes sur les photos ou par les infos du vendeur. Sinon, SUPPRIME-LA. En particulier : nombre de portés, confort, « taille bien », matière ou composition non lue sur une étiquette, technologie (imperméable, respirant, UV...), défaut absent des notes, accessoire (boîte, étiquettes) non mentionné.
+2. Remplace tout mot bizarre, médical ou faux par le mot que dirait un vrai vendeur, en utilisant le lexique fourni (ex. des petits trous d'aération ou des points d'usure ne sont PAS des « piqûres d'aiguille » : dis « traces » ou « petite usure » ; une semelle « blessée » n'existe pas).
+3. Tu peux SEULEMENT supprimer ou remplacer des mots. Tu n'ajoutes JAMAIS d'information, de détail, de couleur ou de logo, même s'ils sont vrais : ta version doit être aussi courte ou plus courte que l'originale. Garde le ton et la structure : phrases simples de particulier. Ne supprime pas un vrai défaut présent dans les notes.
+3b. Si la description ressemble à une fiche technique (liste de couleurs, liste de logos, énumération de détails), raccourcis-la aux 2 ou 3 infos utiles à un acheteur.
+4. Pas de tiret long, pas de gras, pas de hashtags dans la description. La description ne parle pas des photos manquantes.
+5. Titre : marque + type + modèle si prouvé + taille ou couleur, sans « Homme »/« Femme ». Corrige-le seulement s'il contient une erreur.
+6. corrections : liste courte de ce que tu as changé (ex. « retiré : portées 2 fois (non prouvé) », « piqûres d'aiguille -> traces »). Liste vide si tout était juste.`;
 // Repères sans équivoque : si l'œil les a lus ou vus, la marque est forcément celle-ci
 const BRAND_SIGNATURES = [
   ["Nike", /\b(tn|tuned|air ?max|swoosh|virgule nike|just do it|nike)\b/],
@@ -200,6 +225,8 @@ export async function generate({ key, cfg, listing, photosB64, labelCount = 0, e
       + examples.map((e) => `- ${e.title || e.brand || "pièce"} : ${e.authenticity === "fausse" ? "FAUSSE" : "AUTHENTIQUE"}`
         + (e.auth_reason ? `, parce que ${e.auth_reason}` : "")).join("\n") + "\n";
   }
+  const typeText = [notes[0]?.type_article, manual.category, listing.category].filter(Boolean).join(" ");
+  text += `\n${lexiqueFor(typeText)}\n`;
   text += `\nPréférences d'écriture du vendeur :\n${styleInstructions(cfg)}\n`;
   text += `\nVariante d'écriture n°${1 + Math.floor(Math.random() * 999)} (change un peu ta formulation par rapport à d'habitude).`;
 
@@ -210,6 +237,35 @@ export async function generate({ key, cfg, listing, photosB64, labelCount = 0, e
   };
   if (textModel.includes("gpt-oss")) body.reasoning_effort = "medium";
   const a = await groq(key, body, onStep);
+
+  // --- Relecture : un 2e modèle vérifie chaque phrase contre les photos et corrige les mots ---
+  let reviewed = [];
+  if (cfg.review !== false) {
+    onStep?.("Relecture de l'annonce…");
+    try {
+      const rev = await groq(key, {
+        model: REVIEW_MODEL,
+        messages: [
+          { role: "system", content: REVIEW_PROMPT + "\n\n" + lexiqueFor(typeText) },
+          { role: "user", content: JSON.stringify({
+            notes_sur_les_photos: notes[0], infos_du_vendeur: hints || "(aucune)", champs_du_vendeur: manual,
+            annonce: { titre: a.titre, description: a.description },
+          }) },
+        ],
+        response_format: REVIEW_FORMAT, max_completion_tokens: 4000, temperature: 0.2, reasoning_effort: "medium",
+      }, onStep);
+      // garde-fou : un relecteur qui rallonge le texte a ajouté des choses -> on refuse sa version
+      const longer = rev?.description && rev.description.trim().length > a.description.trim().length * 1.1 + 20;
+      if (rev?.description?.trim() && !longer) {
+        a.description = rev.description;
+        if (rev.titre?.trim()) a.titre = rev.titre;
+        reviewed = (rev.corrections || []).filter((c) => c && c.trim());
+      }
+    } catch { /* la relecture est un bonus : en cas d'échec on garde la 1re version */ }
+  }
+  a.description = stripForbidden(a.description);
+  a.titre = stripForbidden(a.titre);
+  if (reviewed.length) a.notes_vendeur = `${a.notes_vendeur || ""}\n\nRelecture : ${reviewed.slice(0, 4).join(" ; ")}`.trim();
 
   // « Inconnu », « Non visible »... = champ vide (le doute est dans les notes)
   for (const k of ["marque", "modele", "categorie", "taille", "couleur", "matiere"]) {
